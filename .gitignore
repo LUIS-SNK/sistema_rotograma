@@ -1,0 +1,23 @@
+# Ambientes virtuais
+.venv/
+venv/
+env/
+# Credenciais e configuracoes locais
+.env
+.env.*
+!.env.example
+# Banco local e dados de usuarios
+instance/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+# Arquivos gerados
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.log
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
