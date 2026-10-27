@@ -1,0 +1,11 @@
+{% extends "base.html" %}{% block title %}Rotogramas{% endblock %}{% block heading %}Rotogramas{% endblock %}
+{% block content %}{% from 'filtros.html' import status, rotograma with context %}
+<div class="page-actions"><p class="muted">Use os filtros em conjunto para refinar a consulta.</p><a class="btn primary" href="{{ url_for('novo_rotograma') }}">+ Novo rotograma</a></div>
+<form class="filter-panel panel" method="get">
+<label class="filter-search">Pesquisar<input name="q" placeholder="Nome, origem, destino ou descrição" value="{{ busca }}"></label>
+{{ status() }}
+<label>Pendências de verificação<select name="pendencias"><option value="">Todos os rotogramas</option><option value="com" {% if request.args.get('pendencias') == 'com' %}selected{% endif %}>Com pendências abertas</option><option value="sem" {% if request.args.get('pendencias') == 'sem' %}selected{% endif %}>Sem pendências abertas</option></select></label>
+<div class="filter-actions"><button class="btn primary">Aplicar filtros</button><a class="btn" href="{{ url_for('listar_rotogramas') }}">Limpar filtros</a></div>
+</form>
+<p class="result-count" role="status">{{ rotogramas|length }} resultado(s) encontrado(s).</p>
+<section class="panel"><div class="table-wrap"><table><thead><tr><th>Rotograma</th><th>Origem</th><th>Destino</th><th>Status</th><th></th></tr></thead><tbody>{% for r in rotogramas %}<tr><td><strong>{{ r.nome }}</strong><small class="subline">{{ r.descricao or 'Sem descrição' }}</small></td><td>{{ r.origem or '—' }}</td><td>{{ r.destino or '—' }}</td><td><span class="status {{ 'active' if r.ativo else 'inactive' }}">{{ 'Ativo' if r.ativo else 'Inativo' }}</span></td><td><a class="btn small" href="{{ url_for('detalhe_rotograma', item_id=r.id) }}">Abrir</a></td></tr>{% else %}<tr><td colspan="5"><div class="empty">Nenhum rotograma encontrado com os filtros selecionados.</div></td></tr>{% endfor %}</tbody></table></div></section>{% endblock %}

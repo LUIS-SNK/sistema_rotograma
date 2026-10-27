@@ -1,0 +1,12 @@
+{% extends "base.html" %}{% block title %}Cercas{% endblock %}{% block heading %}Cercas{% endblock %}
+{% block content %}{% from 'filtros.html' import status, rotograma with context %}
+<div class="page-actions"><p class="muted">Use os filtros em conjunto para refinar a consulta.</p><a class="btn primary" href="{{ url_for('nova_cerca') }}">+ Nova cerca</a></div>
+<form class="filter-panel panel" method="get">
+<label class="filter-search">Pesquisar<input name="q" placeholder="Nome, tipo ou descrição" value="{{ busca }}"></label>
+{{ status() }}
+{{ rotograma(rotogramas_filtro) }}
+<label>Tipo de cerca<select name="tipo"><option value="">Todos os tipos</option>{% for tipo in tipos_cerca %}<option value="{{ tipo }}" {% if request.args.get('tipo') == tipo %}selected{% endif %}>{{ tipo }}</option>{% endfor %}</select></label>
+<div class="filter-actions"><button class="btn primary">Aplicar filtros</button><a class="btn" href="{{ url_for('listar_cercas') }}">Limpar filtros</a></div>
+</form>
+<p class="result-count" role="status">{{ cercas|length }} resultado(s) encontrado(s).</p>
+<section class="panel"><div class="table-wrap"><table><thead><tr><th>Nome</th><th>Tipo</th><th>Velocidade</th><th>Status</th><th></th></tr></thead><tbody>{% for c in cercas %}<tr><td><strong>{{ c.nome }}</strong><small class="subline">{{ c.descricao or 'Sem descrição' }}</small></td><td>{{ c.tipo or '—' }}</td><td>{{ c.velocidade|string + ' km/h' if c.velocidade is not none else '—' }}</td><td><span class="status {{ 'active' if c.ativo else 'inactive' }}">{{ 'Ativa' if c.ativo else 'Inativa' }}</span></td><td><a class="btn small" href="{{ url_for('editar_cerca', item_id=c.id) }}">Editar</a></td></tr>{% else %}<tr><td colspan="5"><div class="empty">Nenhuma cerca encontrada.</div></td></tr>{% endfor %}</tbody></table></div></section>{% endblock %}

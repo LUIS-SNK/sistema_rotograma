@@ -1,0 +1,14 @@
+{% extends "base.html" %}{% block title %}Postos{% endblock %}{% block heading %}Postos{% endblock %}
+{% block content %}{% from 'filtros.html' import status, rotograma with context %}
+<div class="page-actions"><p class="muted">Use os filtros em conjunto para refinar a consulta.</p><a class="btn primary" href="{{ url_for('novo_posto') }}">+ Novo posto</a></div>
+<form class="filter-panel panel" method="get">
+<label class="filter-search">Pesquisar<input name="q" placeholder="Nome, cidade, endereço ou descrição" value="{{ busca }}"></label>
+{{ status() }}
+{{ rotograma(rotogramas_filtro) }}
+<label>Tipo de posto<select name="tipo"><option value="">Todos os tipos</option><option value="sem_tipo" {% if request.args.get('tipo') == 'sem_tipo' %}selected{% endif %}>Tipo não informado</option>{% for tipo in tipos_posto %}<option value="{{ tipo }}" {% if request.args.get('tipo') == tipo %}selected{% endif %}>{{ tipo }}</option>{% endfor %}</select></label>
+<label>Cidade<input name="cidade" value="{{ request.args.get('cidade', '') }}" placeholder="Digite a cidade"></label>
+<label>UF<select name="uf"><option value="">Todas</option>{% for uf in ufs %}<option value="{{ uf }}" {% if request.args.get('uf', '')|upper == uf %}selected{% endif %}>{{ uf }}</option>{% endfor %}</select></label>
+<div class="filter-actions"><button class="btn primary">Aplicar filtros</button><a class="btn" href="{{ url_for('listar_postos') }}">Limpar filtros</a></div>
+</form>
+<p class="result-count" role="status">{{ postos|length }} resultado(s) encontrado(s).</p>
+<section class="panel"><div class="table-wrap"><table><thead><tr><th>Nome</th><th>Tipo de posto</th><th>Endereço</th><th>Cidade/UF</th><th>Status</th><th></th></tr></thead><tbody>{% for p in postos %}<tr><td><strong>{{ p.nome }}</strong><small class="subline">{{ p.descricao or 'Sem descrição' }}</small></td><td>{{ p.tipo or 'Tipo não informado' }}</td><td>{{ p.endereco or '—' }}</td><td>{{ p.cidade or '—' }}{% if p.estado %}/{{ p.estado }}{% endif %}</td><td><span class="status {{ 'active' if p.ativo else 'inactive' }}">{{ 'Ativo' if p.ativo else 'Inativo' }}</span></td><td><a class="btn small" href="{{ url_for('editar_posto', item_id=p.id) }}">Editar</a></td></tr>{% else %}<tr><td colspan="6"><div class="empty">Nenhum posto encontrado.</div></td></tr>{% endfor %}</tbody></table></div></section>{% endblock %}

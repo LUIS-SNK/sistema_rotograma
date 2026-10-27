@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}{% block heading %}Visão geral{% endblock %}
+{% block content %}
+<section class="welcome"><div><p class="eyebrow">PAINEL DE CONTROLE</p><h2>Olá! Vamos manter tudo em ordem.</h2><p>Acompanhe os cadastros e identifique rotogramas que precisam de verificação.</p></div><a class="btn primary" href="{{ url_for('novo_rotograma') }}">+ Novo rotograma</a></section>
+<section class="stats">
+  <a class="stat-card" href="{{ url_for('listar_rotogramas') }}"><span>Rotogramas</span><strong>{{ rotogramas }}</strong><small>Cadastros existentes</small></a>
+  <a class="stat-card" href="{{ url_for('listar_cercas') }}"><span>Cercas</span><strong>{{ cercas }}</strong><small>Elementos cadastrados</small></a>
+  <a class="stat-card" href="{{ url_for('listar_postos') }}"><span>Postos</span><strong>{{ postos }}</strong><small>Locais cadastrados</small></a>
+  <a class="stat-card alert-card" href="{{ url_for('listar_pendencias') }}"><span>Pendências abertas</span><strong>{{ pendencias }}</strong><small>Precisam de verificação</small></a>
+</section>
+<section class="panel"><div class="panel-head"><div><h2>Últimas alterações</h2><p>Registros mais recentes do sistema</p></div><a class="text-link" href="{{ url_for('listar_historico') }}">Ver histórico →</a></div>
+{% if ultimas %}<div class="table-wrap"><table><thead><tr><th>Data</th><th>Elemento</th><th>Campo</th><th>Alteração</th></tr></thead><tbody>{% for h in ultimas %}<tr><td>{{ h.data_alteracao.strftime('%d/%m/%Y %H:%M') }}</td><td>{{ h.item_nome }}</td><td>{{ h.campo|replace('_',' ') }}</td><td><span class="muted">{{ h.valor_anterior or 'Novo' }}</span> <span class="arrow">→</span> {{ h.valor_novo or '—' }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<div class="empty"><span>◷</span><strong>Nenhuma alteração registrada</strong><p>Os registros aparecerão aqui conforme os cadastros forem criados ou modificados.</p></div>{% endif %}
+</section>
+{% endblock %}
