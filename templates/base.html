@@ -16,13 +16,15 @@
       <a href="{{ url_for('listar_cercas') }}">⌁ Cercas</a>
       <a href="{{ url_for('listar_postos') }}">⌖ Postos</a>
       <a href="{{ url_for('listar_alertas') }}">◉ Alertas atuais</a>
+      <a href="{{ url_for('geo.listar') }}">⌕ Análises de cercas</a>
+      {% if usuario_atual and usuario_atual.admin %}<a href="{{ url_for('acesso.usuarios') }}">Usuários</a>{% endif %}
       <a href="{{ url_for('listar_pendencias') }}">♧ Pendências</a>
       <a href="{{ url_for('listar_historico') }}">◷ Histórico</a>
     </nav>
     <div class="sidebar-note">Controle de alterações e rastreabilidade</div>
   </aside>
   <main class="main">
-    <header class="topbar"><div><span class="eyebrow">SISTEMA INTERNO</span><h1>{% block heading %}Gestão de rotogramas{% endblock %}</h1></div><div class="topbar-actions"><button id="alternar-tema" class="btn theme-toggle" type="button" aria-label="Ativar modo escuro" aria-pressed="false" hidden><span data-theme-icon aria-hidden="true">☾</span><span data-theme-label>Modo escuro</span></button><span class="top-tag">v2.0</span></div></header>
+    <header class="topbar"><div><span class="eyebrow">SISTEMA INTERNO</span><h1>{% block heading %}Gestão de rotogramas{% endblock %}</h1></div><div class="topbar-actions"><button id="alternar-tema" class="btn theme-toggle" type="button" aria-label="Ativar modo escuro" aria-pressed="false" hidden><span data-theme-icon aria-hidden="true">☾</span><span data-theme-label>Modo escuro</span></button>{% if usuario_atual %}<span class="user-name">{{ usuario_atual.nome }}</span><form method="post" action="{{ url_for('acesso.sair') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn small">Sair</button></form>{% endif %}<span class="top-tag">v2.1</span></div></header>
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}<div class="alerts">{% for category, message in messages %}<div class="alert {{ category }}">{{ message }}</div>{% endfor %}</div>{% endif %}
     {% endwith %}

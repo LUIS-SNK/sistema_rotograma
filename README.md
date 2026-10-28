@@ -1,4 +1,4 @@
-# Gestão de Rotogramas — v2.0.0
+# Gestão de Rotogramas — v2.1.0
 
 Aplicação interna em Python, Flask e SQLAlchemy para gerenciar cercas, postos,
 rotogramas, vínculos, validade, histórico e pendências. Não executa nem monitora
@@ -12,7 +12,7 @@ Requisitos: Python 3.10 ou superior e internet para instalar dependências.
 
 1. Baixe o projeto em **Code > Download ZIP** e extraia a pasta completa.
 2. Execute **instalar.bat** e aguarde a confirmação.
-3. Execute **iniciar.bat**.
+3. Execute **iniciar.bat**. No primeiro uso, o terminal solicita login, nome e senha do administrador. A senha precisa ter pelo menos 10 caracteres e não aparece ao digitar.
 4. Abra <http://127.0.0.1:5000> e mantenha a janela aberta.
 
 A instalação cria `.venv`. O banco SQLite é criado em `instance/rotogramas.db`.
@@ -145,7 +145,104 @@ reais. O módulo `tests/test_validade.py` contém os cenários desta atualizaç�
 
 ## Antes de disponibilizar em produção
 
-Configurar autenticação/autorização, proteção CSRF, chave secreta segura, HTTPS,
-backup e restauração e monitoramento conforme o ambiente da empresa. Login e
-permissões não foram adicionados nesta atualização. O histórico não identifica
-usuários individuais, e a fila de verificações continua compartilhada.
+Configurar HTTPS, políticas de acesso e recuperação de contas,
+backup e restauração e monitoramento conforme o ambiente da empresa. A versão 2.1 adiciona login individual, administração de usuários e proteção CSRF. Registros antigos não recebem autoria inventada; eventos novos identificam usuário ou sistema. A fila continua compartilhada.
+
+## Análises geográficas de novas cercas
+
+A versão 2.1 usa o OpenRouteService apenas como auxílio para análise humana.
+Cadastros e vínculos existentes permanecem preservados. Novas cercas ativas entram
+em uma fila persistente por rotograma ativo; cercas antigas precisam ser incluídas
+explicitamente por **Consultar cerca > Solicitar análise geográfica**. Novos
+rotogramas e mudanças de localização, origem/destino ou parâmetros reavaliam os
+pares habilitados. Campos de latitude/longitude são opcionais e devem ser
+preenchidos em pares; no formato ORS a ordem é longitude, latitude.
+
+A distância é a menor distância geodésica aproximada aos segmentos do percurso,
+não apenas aos extremos. A margem inicial é 10 km e pode ser configurada. O
+trajeto driving-hgv é estimado: sem dados específicos do veículo e pontos
+intermediários ele pode diferir do percurso real. O ponto da cidade não representa
+o perímetro da cerca nem toda a área do município. Ausência de correspondência
+não comprova que uma cerca não pertença ao rotograma.
+
+### Ativar a API no servidor
+
+Copie `.env.example` para `.env` somente se esse arquivo ainda não existir; caso
+exista, acrescente as variáveis sem sobrescrever sua configuração do banco.
+
+```env
+ORS_ENABLED=1
+ORS_API_KEY=SUA_CHAVE_LOCAL
+ORS_RAIO_KM=10
+ORS_CACHE_DIAS=30
+```
+
+Não coloque a chave no código, na interface, em prints ou no GitHub. A chave usada
+na prova de conceito não foi incluída na instalação. Reinicie o servidor após
+mudar `.env`. Somente o servidor central precisa de acesso HTTPS ao provedor.
+A API recebe coordenadas e consultas de localização; não recebe usuários, nomes
+de cercas, histórico ou identificação de rotogramas.
+
+A fila geográfica tem uma thread própria, independente da validade, e é verificada
+a cada 10 segundos enquanto o servidor roda. Ela persiste tarefas, repete falhas
+transitórias com espera crescente e pausa para revisão após cinco falhas. Sem
+chave, com API indisponível ou sem cota, o cadastro continua funcionando. A tela
+mostra situação técnica e quantidade concluída, distinguindo processamento parcial
+de comparação concluída sem proximidade.
+
+O cache de geocodificações é compartilhado por consulta normalizada e UF. Textos
+livres sem UF estruturada, localizações com mais de um candidato e resultados de
+baixa confiança precisam de confirmação em **Análises de cercas > Confirmar
+localização**. Alternativamente, forneça coordenadas conhecidas no cadastro.
+A escolha compartilhada registra quem a confirmou.
+
+Trajetos ficam no banco com geometria, coordenadas, perfil, data, validade e
+atribuição. Novas comparações reutilizam o cache vigente. Um recálculo cria uma
+nova versão de trajeto e preserva os anteriores referenciados pelas decisões.
+Ao tentar decidir sobre um trajeto vencido, o sistema solicita nova comparação.
+Use **Tentar novamente** na fila para uma reavaliação explícita.
+
+A rotina usa uma concessão no banco para coordenar instâncias e limita os lotes.
+Por padrão reserva no máximo uma requisição por endpoint a cada 2,1 segundos e
+orçamentos conservadores locais de 1.000 Directions e 500 Geocoding por janela de
+24 horas. Ajuste apenas após conferir as cotas reais no painel HeiGIT. Respeita
+saldo/reset informados pela API, erros de permissão e limite; não usa múltiplas
+chaves para contornar cotas.
+
+### Concluir uma análise
+
+1. Abra **Análises de cercas** ou a categoria correspondente em **Alertas atuais**.
+2. Confira cerca, rotograma, distância aproximada, fonte e data do trajeto.
+3. Marque a confirmação de conferência e escolha **Confirmar vínculo da cerca**
+   ou **Dispensar análise**, com justificativa opcional.
+4. A decisão registra usuário autenticado, data e justificativa. Ao vincular,
+   também usa o histórico e a pendência de verificação já existentes.
+
+O sistema nunca vincula automaticamente. Há uma análise atual por par e histórico
+das decisões. Rodar novamente com o mesmo contexto não reabre uma dispensa.
+Alterações relevantes invalidam sugestões antigas e podem gerar nova revisão.
+Itens inativos/excluídos e telas desatualizadas não podem confirmar vínculos.
+
+### Usuários e primeiro acesso
+
+Não existe usuário ou senha padrão. **iniciar.bat** prepara o primeiro acesso no
+terminal antes de abrir o servidor. Também é possível executar
+**configurar_acesso.bat** ou:
+
+```powershell
+.\.venv\Scripts\python.exe -m flask --app app preparar-acesso
+.\.venv\Scripts\python.exe -m flask --app app criar-usuario
+```
+
+Depois, administradores criam, desativam e redefinem senhas em **Usuários**.
+Desativação ou redefinição revoga sessões anteriores. Contas são preservadas para
+manter autoria. Há limitação de tentativas de login e senhas são armazenadas como
+hashes. Uma chave de sessão local é gerada em `instance/secret.key` quando não há
+SECRET_KEY própria. Preserve esse arquivo, mantenha-o fora do Git e use
+COOKIE_SECURE=1 na implantação com HTTPS. A proteção CSRF cobre todos os POSTs.
+
+A integração é desativada por padrão até configurar chave e ORS_ENABLED. Não foram
+feitas consultas reais com dados da empresa durante o desenvolvimento. Os testes
+de integração usam respostas simuladas e bancos temporários; a prova real anterior
+utilizou apenas cidades públicas de demonstração. Para MySQL, valide a migração
+em uma cópia do ambiente antes de atualizar o servidor.

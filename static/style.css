@@ -49,3 +49,5 @@
 @media(max-width:720px){.topbar{flex-wrap:wrap;gap:14px}.topbar-actions{margin-left:auto}}
 
 .form-grid small{font-weight:400;line-height:1.5;color:var(--muted)}td .btn{margin:3px}td{vertical-align:top}.filter-panel{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}.filter-search{grid-column:span 1}
+
+.login-panel{max-width:620px;margin:30px auto}.login-panel label{margin-top:18px}.user-name{font-size:12px;max-width:160px;overflow-wrap:anywhere}.topbar-actions{flex-wrap:wrap}.wrap-cell{white-space:normal;min-width:220px;max-width:440px}.account-actions{display:flex;gap:10px;align-items:end}.check-label{margin-top:12px;margin-bottom:12px}

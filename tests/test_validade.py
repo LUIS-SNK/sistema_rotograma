@@ -20,7 +20,7 @@ from validade import vencimento, somar_meses, situacao_validade, ler_referencia,
 class Regras(unittest.TestCase):
     def setUp(self):
         self.contexto = sistema.app.app_context(); self.contexto.push()
-        sistema.app.config['TESTING'] = True
+        sistema.app.config.update(TESTING=True, WTF_CSRF_ENABLED=False, LOGIN_DISABLED=True)
         sistema.db.drop_all(); sistema.db.create_all()
         self.cliente = sistema.app.test_client()
         self.patches = [patch('app.hoje', return_value=date(2026,10,28)), patch('validade.hoje', return_value=date(2026,10,28))]
