@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Dashboard{% endblock %}{% block heading %}Visão geral{% endblock %}
-{% block content %}
+{% block content %}<section class="panel"><div class="panel-head"><div><h2>Alertas atuais: {{ alertas|length }}</h2><p>Validade dos registros e problemas de composição dos rotogramas.</p></div><a class="btn" href="{{ url_for('listar_alertas') }}">Ver alertas</a></div>{% for a in alertas[:5] %}<div class="pending-row"><div><strong>{{ a.item.nome }}</strong><p>{{ a.mensagem }}{{ ' — Rotograma: '+a.rotograma.nome if a.categoria == 'composicao' else '' }}</p></div></div>{% endfor %}</section>
 <section class="welcome"><div><p class="eyebrow">PAINEL DE CONTROLE</p><h2>Olá! Vamos manter tudo em ordem.</h2><p>Acompanhe os cadastros e identifique rotogramas que precisam de verificação.</p></div><a class="btn primary" href="{{ url_for('novo_rotograma') }}">+ Novo rotograma</a></section>
 <section class="stats">
   <a class="stat-card" href="{{ url_for('listar_rotogramas') }}"><span>Rotogramas</span><strong>{{ rotogramas }}</strong><small>Cadastros existentes</small></a>

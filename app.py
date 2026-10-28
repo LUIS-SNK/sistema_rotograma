@@ -1,14 +1,25 @@
 import os
 import unicodedata
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+import secrets
+import threading
+import atexit
 from decimal import Decimal, InvalidOperation
 
 from dotenv import load_dotenv
 from flask import Flask, abort, flash, redirect, render_template, request, url_for
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import UniqueConstraint, func, or_, inspect, text
+from sqlalchemy import UniqueConstraint, func, or_, inspect, text, update, and_, event
+from sqlalchemy.orm.exc import StaleDataError
+from sqlalchemy.exc import IntegrityError, OperationalError
+from validade import hoje, vencimento, ler_referencia, situacao_validade, UFS, VerificadorInterno
 
 TIPOS_POSTO = ("Refeição", "Refeição/Pernoite", "Abastecimento", "Abastecimento/Refeição/Pernoite", "Abastecimento/Refeição")
+
+def agora_utc():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
 
 load_dotenv()
 app = Flask(__name__)
@@ -20,16 +31,35 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
 
+def configurar_sqlite(connection, record):
+    cursor = connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.execute("PRAGMA busy_timeout=5000")
+    cursor.close()
+
+
+with app.app_context():
+    if db.engine.dialect.name == "sqlite":
+        event.listen(db.engine, "connect", configurar_sqlite)
+
+
 class Cerca(db.Model):
     __tablename__ = "cercas"
     id = db.Column(db.Integer, primary_key=True)
     nome = db.Column(db.String(120), nullable=False, index=True)
+    cidade = db.Column(db.String(100), nullable=True)
+    estado = db.Column(db.String(2), nullable=True)
     tipo = db.Column(db.String(80), nullable=False, default="")
     velocidade = db.Column(db.Numeric(7, 2), nullable=True)
     descricao = db.Column(db.Text, nullable=True)
     ativo = db.Column(db.Boolean, nullable=False, default=True)
-    criado_em = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    atualizado_em = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    criado_em = db.Column(db.DateTime, nullable=False, default=agora_utc)
+    atualizado_em = db.Column(db.DateTime, nullable=False, default=agora_utc, onupdate=agora_utc)
+
+    excluido_em = db.Column(db.DateTime, nullable=True)
+    motivo_inativacao = db.Column(db.String(30), nullable=True)
+    versao = db.Column(db.Integer, nullable=False, default=1, server_default="1")
+    __mapper_args__ = {"version_id_col": versao}
 
 
 class Posto(db.Model):
@@ -42,8 +72,15 @@ class Posto(db.Model):
     estado = db.Column(db.String(2), nullable=True)
     descricao = db.Column(db.Text, nullable=True)
     ativo = db.Column(db.Boolean, nullable=False, default=True)
-    criado_em = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    atualizado_em = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    criado_em = db.Column(db.DateTime, nullable=False, default=agora_utc)
+    atualizado_em = db.Column(db.DateTime, nullable=False, default=agora_utc, onupdate=agora_utc)
+
+    excluido_em = db.Column(db.DateTime, nullable=True)
+    motivo_inativacao = db.Column(db.String(30), nullable=True)
+    versao = db.Column(db.Integer, nullable=False, default=1, server_default="1")
+    __mapper_args__ = {"version_id_col": versao}
+    data_referencia = db.Column(db.Date, nullable=True)
+    data_vencimento = db.Column(db.Date, nullable=True, index=True)
 
 
 class Rotograma(db.Model):
@@ -54,8 +91,15 @@ class Rotograma(db.Model):
     destino = db.Column(db.String(180), nullable=True)
     descricao = db.Column(db.Text, nullable=True)
     ativo = db.Column(db.Boolean, nullable=False, default=True)
-    criado_em = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    atualizado_em = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    criado_em = db.Column(db.DateTime, nullable=False, default=agora_utc)
+    atualizado_em = db.Column(db.DateTime, nullable=False, default=agora_utc, onupdate=agora_utc)
+
+    excluido_em = db.Column(db.DateTime, nullable=True)
+    motivo_inativacao = db.Column(db.String(30), nullable=True)
+    versao = db.Column(db.Integer, nullable=False, default=1, server_default="1")
+    __mapper_args__ = {"version_id_col": versao}
+    data_referencia = db.Column(db.Date, nullable=True)
+    data_vencimento = db.Column(db.Date, nullable=True, index=True)
 
 
 class RotogramaCerca(db.Model):
@@ -63,7 +107,7 @@ class RotogramaCerca(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     rotograma_id = db.Column(db.Integer, db.ForeignKey("rotogramas.id"), nullable=False)
     cerca_id = db.Column(db.Integer, db.ForeignKey("cercas.id"), nullable=False)
-    vinculado_em = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    vinculado_em = db.Column(db.DateTime, nullable=False, default=agora_utc)
     rotograma = db.relationship("Rotograma", backref=db.backref("cercas_vinculadas", cascade="all, delete-orphan"))
     cerca = db.relationship("Cerca")
     __table_args__ = (UniqueConstraint("rotograma_id", "cerca_id", name="uq_rotograma_cerca"),)
@@ -74,7 +118,7 @@ class RotogramaPosto(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     rotograma_id = db.Column(db.Integer, db.ForeignKey("rotogramas.id"), nullable=False)
     posto_id = db.Column(db.Integer, db.ForeignKey("postos.id"), nullable=False)
-    vinculado_em = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    vinculado_em = db.Column(db.DateTime, nullable=False, default=agora_utc)
     rotograma = db.relationship("Rotograma", backref=db.backref("postos_vinculados", cascade="all, delete-orphan"))
     posto = db.relationship("Posto")
     __table_args__ = (UniqueConstraint("rotograma_id", "posto_id", name="uq_rotograma_posto"),)
@@ -90,7 +134,7 @@ class HistoricoAlteracao(db.Model):
     valor_anterior = db.Column(db.Text, nullable=True)
     valor_novo = db.Column(db.Text, nullable=True)
     tipo_operacao = db.Column(db.String(30), nullable=False, default="edicao")
-    data_alteracao = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    data_alteracao = db.Column(db.DateTime, nullable=False, default=agora_utc, index=True)
 
 
 class Pendencia(db.Model):
@@ -101,11 +145,19 @@ class Pendencia(db.Model):
     tipo = db.Column(db.String(40), nullable=False, default="alteracao_cadastral")
     descricao = db.Column(db.String(255), nullable=False)
     status = db.Column(db.String(20), nullable=False, default="aberta", index=True)
-    criada_em = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    criada_em = db.Column(db.DateTime, nullable=False, default=agora_utc)
     concluida_em = db.Column(db.DateTime, nullable=True)
     rotograma = db.relationship("Rotograma")
     historico = db.relationship("HistoricoAlteracao")
 
+
+
+class ControleRotina(db.Model):
+    __tablename__ = "controle_rotinas"
+    nome = db.Column(db.String(60), primary_key=True)
+    ultima_execucao = db.Column(db.DateTime, nullable=True)
+    bloqueado_ate = db.Column(db.DateTime, nullable=True)
+    token = db.Column(db.String(64), nullable=True)
 
 
 def normalizar_nome(nome):
@@ -119,9 +171,29 @@ def ordenar_por_nome(itens):
 
 def filtrar_status(query, modelo):
     status = request.args.get("status", "")
-    if status in ("ativo", "inativo"):
-        query = query.filter(modelo.ativo.is_(status == "ativo"))
+    if status == "excluido":
+        return query.filter(modelo.excluido_em.is_not(None))
+    query = query.filter(modelo.excluido_em.is_(None))
+    if status == "ativo":
+        query = query.filter(modelo.ativo.is_(True))
+        if modelo is Posto:
+            query = query.filter(or_(Posto.data_vencimento.is_(None), Posto.data_vencimento > hoje()))
+    elif status == "inativo":
+        condicao = modelo.ativo.is_(False)
+        if modelo is Posto:
+            condicao = or_(condicao, Posto.data_vencimento <= hoje())
+        query = query.filter(condicao)
+    elif status in ("manual", "vencimento"):
+        condicao = and_(modelo.motivo_inativacao == status, modelo.ativo.is_(False))
+        if status == "vencimento" and modelo is Posto:
+            condicao = or_(condicao, and_(Posto.ativo.is_(True), Posto.data_vencimento <= hoje()))
+        query = query.filter(condicao)
     return query
+
+
+def filtrar_validade(itens):
+    filtro = request.args.get("validade", "")
+    return [item for item in itens if not filtro or situacao_validade(item) == filtro]
 
 
 def buscar_texto(itens, busca, campos):
@@ -147,7 +219,10 @@ def filtrar_rotograma(query, modelo, vinculo, chave):
 
 @app.context_processor
 def opcoes_cadastro():
-    return {"tipos_posto": TIPOS_POSTO}
+    return {"tipos_posto": TIPOS_POSTO, "ufs_oficiais": UFS,
+            "validade_item": situacao_validade, "situacao_item": situacao_item,
+            "problemas_rotograma": problemas_rotograma, "hoje_local": hoje(),
+            "data_br": lambda d: d.strftime("%d/%m/%Y") if d else "Não informada"}
 
 
 @app.before_request
@@ -186,17 +261,51 @@ def validar_cadastros():
         # Postos antigos podem continuar sem classificação até o usuário escolher um tipo.
         if tipo_enviado not in TIPOS_POSTO and not (item and not item.tipo and not tipo_enviado):
             erro = "Selecione um tipo de posto válido."
+    if not erro and item:
+        if item.excluido_em:
+            abort(409, description="Este registro foi excluído e está disponível somente para consulta.")
+        conferir_versao(item)
+    if not erro and tipo in ("posto", "rotograma"):
+        try:
+            referencia = ler_referencia(request.form.get("data_referencia", ""), obrigatoria=item is None or bool(item.data_referencia))
+            if tipo == "posto" and item and item.motivo_inativacao == "vencimento" and bool_form(request.form.get("ativo")) and (not referencia or vencimento(referencia) <= hoje()):
+                raise ValueError("Regularize a validade antes de reativar o posto.")
+        except ValueError as exc:
+            erro = str(exc)
+    if not erro and tipo == "cerca":
+        cidade = request.form.get("cidade", "").strip()
+        uf = request.form.get("estado", "").strip().upper()
+        if ((item is None or bool(item.cidade) or bool(item.estado) or cidade or uf) and (not cidade or uf not in UFS)) or len(cidade) > 100:
+            erro = "Informe a cidade (até 100 caracteres) e selecione uma UF oficial."
     if erro:
         flash(erro, "erro")
         return render_template(template, **{tipo: item}), status
 
 
 def atualizar_estrutura():
-    """Migração aditiva, compatível com SQLite e MySQL; preserva postos existentes."""
-    db.create_all()
+    """Aplica somente revisões controladas; não remove dados existentes."""
+    from alembic import command
+    from alembic.config import Config
+    configuracao = Config()
+    configuracao.set_main_option("script_location", str(Path(__file__).parent / "migrations"))
+    from alembic.runtime.migration import MigrationContext
+    from alembic.script import ScriptDirectory
+    with db.engine.connect() as connection:
+        revisao = MigrationContext.configure(connection).get_current_revision()
+        tem_tabelas = bool(inspect(connection).get_table_names())
+    if revisao != ScriptDirectory.from_config(configuracao).get_current_head() and tem_tabelas and db.engine.dialect.name == "sqlite":
+        import sqlite3
+        origem = Path(db.engine.url.database)
+        if origem.is_file():
+            pasta_backup = origem.parent / "backups"
+            pasta_backup.mkdir(exist_ok=True)
+            destino = pasta_backup / ("antes-migracao-" + agora_utc().strftime("%Y%m%d-%H%M%S-%f") + ".db")
+            with sqlite3.connect(origem.as_uri() + "?mode=ro", uri=True) as fonte, sqlite3.connect(destino) as copia:
+                fonte.backup(copia)
+            app.logger.info("Backup anterior à migração: %s", destino)
     with db.engine.begin() as connection:
-        if "tipo" not in {coluna["name"] for coluna in inspect(connection).get_columns("postos")}:
-            connection.execute(text("ALTER TABLE postos ADD COLUMN tipo VARCHAR(80) NULL"))
+        configuracao.attributes["connection"] = connection
+        command.upgrade(configuracao, "head")
 
 
 @app.cli.command("atualizar-banco")
@@ -249,6 +358,20 @@ def criar_pendencias(registro, rotogramas, tipo="alteracao_cadastral"):
 
 
 def salvar_alteracoes_cadastro(objeto, tipo_item, campos, dados, gerar_pendencias=True):
+    campos = dict(campos)
+    if tipo_item in ("posto", "rotograma"):
+        campos["data_referencia"] = lambda v: ler_referencia(v, obrigatoria=bool(objeto.data_referencia))
+        campos["data_vencimento"] = lambda v: vencimento(ler_referencia(dados.get("data_referencia", "")))
+    ativo_novo = bool_form(dados.get("ativo"))
+    motivo = None if ativo_novo else (objeto.motivo_inativacao or "manual")
+    if objeto.ativo and not ativo_novo:
+        motivo = "manual"
+    if tipo_item == "posto":
+        fim = vencimento(ler_referencia(dados.get("data_referencia", "")))
+        if ativo_novo and fim and fim <= hoje():
+            campos["ativo"] = lambda v: False
+            motivo = "vencimento"
+    campos["motivo_inativacao"] = lambda v: motivo
     alteracoes = []
     for campo, conversor in campos.items():
         valor_anterior = getattr(objeto, campo)
@@ -284,10 +407,12 @@ def bool_form(valor):
 def dashboard():
     return render_template(
         "dashboard.html",
-        cercas=Cerca.query.count(),
-        postos=Posto.query.count(),
-        rotogramas=Rotograma.query.count(),
+        cercas=Cerca.query.filter_by(excluido_em=None).count(),
+        postos=Posto.query.filter_by(excluido_em=None).count(),
+        rotogramas=Rotograma.query.filter_by(excluido_em=None).count(),
         pendencias=Pendencia.query.filter_by(status="aberta").count(),
+        alertas=coletar_alertas(),
+        rotina=db.session.get(ControleRotina, "vencimentos"),
         ultimas=HistoricoAlteracao.query.order_by(HistoricoAlteracao.data_alteracao.desc()).limit(8).all(),
     )
 
@@ -300,7 +425,10 @@ def listar_cercas():
     tipo = request.args.get("tipo", "")
     if tipo:
         query = query.filter(Cerca.tipo == tipo)
-    itens = buscar_texto(query.all(), busca, ("nome", "tipo", "descricao"))
+    itens = buscar_texto(query.all(), busca, ("nome", "tipo", "descricao", "cidade", "estado"))
+    cidade = normalizar_nome(request.args.get("cidade", ""))
+    uf = request.args.get("uf", "").upper()
+    itens = [c for c in itens if (not cidade or cidade in normalizar_nome(c.cidade or "")) and (not uf or c.estado == uf)]
     tipos = sorted({c.tipo for c in Cerca.query.all() if c.tipo}, key=normalizar_nome)
     return render_template("cercas.html", cercas=ordenar_por_nome(itens), busca=busca,
                            rotogramas_filtro=ordenar_por_nome(Rotograma.query.all()), tipos_cerca=tipos)
@@ -321,12 +449,13 @@ def nova_cerca():
         except InvalidOperation:
             flash("Informe uma velocidade válida.", "erro")
             return render_template("form_cerca.html", cerca=None)
-        cerca = Cerca(nome=nome, tipo=request.form.get("tipo", "").strip(),
+        cerca = Cerca(nome=nome, cidade=request.form.get("cidade", "").strip(), estado=request.form.get("estado", "").strip().upper(), tipo=request.form.get("tipo", "").strip(),
                       velocidade=velocidade, descricao=request.form.get("descricao", "").strip(),
                       ativo=bool_form(request.form.get("ativo")))
+        cerca.motivo_inativacao = None if cerca.ativo else "manual"
         db.session.add(cerca)
         db.session.flush()
-        for campo, valor in [("nome", nome), ("tipo", cerca.tipo), ("velocidade", velocidade),
+        for campo, valor in [("cidade", cerca.cidade), ("estado", cerca.estado), ("nome", nome), ("tipo", cerca.tipo), ("velocidade", velocidade),
                              ("descricao", cerca.descricao), ("ativo", cerca.ativo)]:
             registrar_historico("cerca", cerca.id, cerca.nome, campo, None, valor, "cadastro")
         db.session.commit()
@@ -346,6 +475,8 @@ def editar_cerca(item_id):
         try:
             campos = {
                 "nome": lambda v: v.strip(),
+                "cidade": lambda v: v.strip() or None,
+                "estado": lambda v: v.strip().upper() or None,
                 "tipo": lambda v: v.strip(),
                 "velocidade": lambda v: Decimal(v.replace(",", ".")) if v.strip() else None,
                 "descricao": lambda v: v.strip(),
@@ -380,7 +511,7 @@ def listar_postos():
     if cidade:
         itens = [p for p in itens if cidade in normalizar_nome(p.cidade or "")]
     ufs = sorted({p.estado.upper() for p in Posto.query.all() if p.estado})
-    return render_template("postos.html", postos=ordenar_por_nome(itens), busca=busca,
+    return render_template("postos.html", postos=ordenar_por_nome(filtrar_validade(itens)), busca=busca,
                            rotogramas_filtro=ordenar_por_nome(Rotograma.query.all()), ufs=ufs)
 
 
@@ -396,9 +527,10 @@ def novo_posto():
                       estado=request.form.get("estado", "").strip().upper()[:2],
                       descricao=request.form.get("descricao", "").strip(),
                       ativo=bool_form(request.form.get("ativo")))
+        preparar_novo(posto)
         db.session.add(posto)
         db.session.flush()
-        for campo in ("nome", "tipo", "endereco", "cidade", "estado", "descricao", "ativo"):
+        for campo in ("nome", "tipo", "endereco", "cidade", "estado", "descricao", "ativo", "data_referencia", "data_vencimento", "motivo_inativacao"):
             registrar_historico("posto", posto.id, posto.nome, campo, None, getattr(posto, campo), "cadastro")
         db.session.commit()
         flash("Posto cadastrado com sucesso.", "sucesso")
@@ -440,7 +572,10 @@ def listar_rotogramas():
     elif pendencias == "sem":
         query = query.filter(~Rotograma.id.in_(abertos))
     itens = buscar_texto(query.all(), busca, ("nome", "origem", "destino", "descricao"))
-    return render_template("rotogramas.html", rotogramas=ordenar_por_nome(itens), busca=busca)
+    composicao = request.args.get("composicao", "")
+    if composicao in ("com", "sem"):
+        itens = [r for r in itens if bool(problemas_rotograma(r)) == (composicao == "com")]
+    return render_template("rotogramas.html", rotogramas=ordenar_por_nome(filtrar_validade(itens)), busca=busca)
 
 
 @app.route("/rotogramas/novo", methods=["GET", "POST"])
@@ -454,9 +589,10 @@ def novo_rotograma():
                               destino=request.form.get("destino", "").strip(),
                               descricao=request.form.get("descricao", "").strip(),
                               ativo=bool_form(request.form.get("ativo")))
+        preparar_novo(rotograma)
         db.session.add(rotograma)
         db.session.flush()
-        for campo in ("nome", "origem", "destino", "descricao", "ativo"):
+        for campo in ("nome", "origem", "destino", "descricao", "ativo", "data_referencia", "data_vencimento", "motivo_inativacao"):
             registrar_historico("rotograma", rotograma.id, rotograma.nome, campo, None, getattr(rotograma, campo), "cadastro")
         db.session.commit()
         flash("Rotograma cadastrado com sucesso.", "sucesso")
@@ -473,8 +609,8 @@ def detalhe_rotograma(item_id):
     postos_vinculados.sort(key=lambda v: (normalizar_nome(v.posto.nome), v.posto_id))
     cercas_ids = [v.cerca_id for v in cercas_vinculadas]
     postos_ids = [v.posto_id for v in postos_vinculados]
-    cercas_disponiveis = Cerca.query.filter(Cerca.ativo.is_(True), ~Cerca.id.in_(cercas_ids)).order_by(Cerca.nome).all() if cercas_ids else Cerca.query.filter_by(ativo=True).order_by(Cerca.nome).all()
-    postos_disponiveis = Posto.query.filter(Posto.ativo.is_(True), ~Posto.id.in_(postos_ids)).order_by(Posto.nome).all() if postos_ids else Posto.query.filter_by(ativo=True).order_by(Posto.nome).all()
+    cercas_disponiveis = Cerca.query.filter(Cerca.ativo.is_(True), Cerca.excluido_em.is_(None), ~Cerca.id.in_(cercas_ids)).order_by(Cerca.nome).all() if cercas_ids else Cerca.query.filter_by(ativo=True, excluido_em=None).order_by(Cerca.nome).all()
+    postos_disponiveis = Posto.query.filter(Posto.ativo.is_(True), Posto.excluido_em.is_(None), or_(Posto.data_vencimento.is_(None), Posto.data_vencimento > hoje()), ~Posto.id.in_(postos_ids)).order_by(Posto.nome).all() if postos_ids else Posto.query.filter(Posto.ativo.is_(True), Posto.excluido_em.is_(None), or_(Posto.data_vencimento.is_(None), Posto.data_vencimento > hoje())).order_by(Posto.nome).all()
     cercas_disponiveis = ordenar_por_nome(cercas_disponiveis)
     postos_disponiveis = ordenar_por_nome(postos_disponiveis)
     pendencias = Pendencia.query.filter_by(rotograma_id=item_id).order_by(Pendencia.criada_em.desc()).limit(10).all()
@@ -508,14 +644,19 @@ def editar_rotograma(item_id):
 @app.route("/rotogramas/<int:item_id>/vincular-cerca", methods=["POST"])
 def vincular_cerca(item_id):
     rotograma = db.get_or_404(Rotograma, item_id)
+    conferir_versao(rotograma)
+    if rotograma.excluido_em:
+        abort(409, description="Rotograma excluído: composição preservada para consulta.")
+    rotograma.atualizado_em = agora_utc()
     cerca = db.get_or_404(Cerca, request.form.get("cerca_id", type=int))
-    if not cerca.ativo:
+    if cerca.excluido_em or not cerca.ativo:
         flash("Não é possível vincular uma cerca inativa.", "erro")
         return redirect(url_for("detalhe_rotograma", item_id=item_id))
     existente = RotogramaCerca.query.filter_by(rotograma_id=item_id, cerca_id=cerca.id).first()
     if existente:
         flash("Essa cerca já está vinculada ao rotograma.", "erro")
         return redirect(url_for("detalhe_rotograma", item_id=item_id))
+    cerca.versao += 1
     db.session.add(RotogramaCerca(rotograma_id=item_id, cerca_id=cerca.id))
     db.session.flush()
     registro = registrar_historico("vinculo_cerca", cerca.id, cerca.nome, "vinculo_cerca",
@@ -531,6 +672,10 @@ def vincular_cerca(item_id):
 @app.route("/rotogramas/<int:item_id>/desvincular-cerca/<int:cerca_id>", methods=["POST"])
 def desvincular_cerca(item_id, cerca_id):
     rotograma = db.get_or_404(Rotograma, item_id)
+    conferir_versao(rotograma)
+    if rotograma.excluido_em:
+        abort(409, description="Rotograma excluído: composição preservada para consulta.")
+    rotograma.atualizado_em = agora_utc()
     vinculo = RotogramaCerca.query.filter_by(rotograma_id=item_id, cerca_id=cerca_id).first_or_404()
     nome = vinculo.cerca.nome
     registro = registrar_historico("vinculo_cerca", cerca_id, f"{nome} | Rotograma: {rotograma.nome}",
@@ -548,13 +693,18 @@ def desvincular_cerca(item_id, cerca_id):
 @app.route("/rotogramas/<int:item_id>/vincular-posto", methods=["POST"])
 def vincular_posto(item_id):
     rotograma = db.get_or_404(Rotograma, item_id)
+    conferir_versao(rotograma)
+    if rotograma.excluido_em:
+        abort(409, description="Rotograma excluído: composição preservada para consulta.")
+    rotograma.atualizado_em = agora_utc()
     posto = db.get_or_404(Posto, request.form.get("posto_id", type=int))
-    if not posto.ativo:
+    if posto.excluido_em or not posto.ativo or situacao_validade(posto) == "vencido":
         flash("Não é possível vincular um posto inativo.", "erro")
         return redirect(url_for("detalhe_rotograma", item_id=item_id))
     if RotogramaPosto.query.filter_by(rotograma_id=item_id, posto_id=posto.id).first():
         flash("Esse posto já está vinculado ao rotograma.", "erro")
         return redirect(url_for("detalhe_rotograma", item_id=item_id))
+    posto.versao += 1
     db.session.add(RotogramaPosto(rotograma_id=item_id, posto_id=posto.id))
     db.session.flush()
     registro = registrar_historico("vinculo_posto", posto.id, f"{posto.nome} | Rotograma: {rotograma.nome}",
@@ -570,6 +720,10 @@ def vincular_posto(item_id):
 @app.route("/rotogramas/<int:item_id>/desvincular-posto/<int:posto_id>", methods=["POST"])
 def desvincular_posto(item_id, posto_id):
     rotograma = db.get_or_404(Rotograma, item_id)
+    conferir_versao(rotograma)
+    if rotograma.excluido_em:
+        abort(409, description="Rotograma excluído: composição preservada para consulta.")
+    rotograma.atualizado_em = agora_utc()
     vinculo = RotogramaPosto.query.filter_by(rotograma_id=item_id, posto_id=posto_id).first_or_404()
     nome = vinculo.posto.nome
     registro = registrar_historico("vinculo_posto", posto_id, f"{nome} | Rotograma: {rotograma.nome}",
@@ -601,7 +755,7 @@ def concluir_pendencia(item_id):
     pendencia = db.get_or_404(Pendencia, item_id)
     if pendencia.status == "aberta":
         pendencia.status = "concluida"
-        pendencia.concluida_em = datetime.utcnow()
+        pendencia.concluida_em = agora_utc()
         db.session.commit()
         flash("Verificação registrada. Pendência concluída.", "sucesso")
     else:
@@ -630,7 +784,263 @@ def erro_interno(error):
     return render_template("erro.html"), 500
 
 
-if __name__ == "__main__":
+
+def conferir_versao(item):
+    versao = request.form.get("versao", type=int)
+    if versao is None or versao != item.versao:
+        abort(409, description="Este registro mudou desde que a tela foi aberta. Recarregue a página e revise os dados antes de salvar.")
+
+
+def preparar_novo(item):
+    item.data_referencia = ler_referencia(request.form.get("data_referencia", ""), obrigatoria=True)
+    item.data_vencimento = vencimento(item.data_referencia)
+    item.motivo_inativacao = None if item.ativo else "manual"
+    if isinstance(item, Posto) and item.ativo and item.data_vencimento <= hoje():
+        item.ativo = False
+        item.motivo_inativacao = "vencimento"
+
+
+def situacao_item(item):
+    if item.excluido_em:
+        return "Excluído"
+    if isinstance(item, Posto) and situacao_validade(item) == "vencido" and (item.ativo or item.motivo_inativacao == "vencimento"):
+        return "Inativo por vencimento"
+    if not item.ativo:
+        return "Inativo por vencimento" if item.motivo_inativacao == "vencimento" else "Inativo manualmente"
+    return "Ativo"
+
+
+def problemas_rotograma(rotograma):
+    problemas = []
+    for tipo, vinculos, atributo in (("cerca", rotograma.cercas_vinculadas, "cerca"), ("posto", rotograma.postos_vinculados, "posto")):
+        for vinculo in vinculos:
+            item = getattr(vinculo, atributo)
+            motivo = situacao_item(item)
+            if motivo != "Ativo":
+                problemas.append({"tipo": tipo, "item": item, "motivo": motivo,
+                                  "chave": f"composicao:{rotograma.id}:{tipo}:{item.id}",
+                                  "rotograma": rotograma})
+    return problemas
+
+
+def coletar_alertas():
+    alertas = []
+    for tipo, modelo in (("posto", Posto), ("rotograma", Rotograma)):
+        for item in modelo.query.filter(modelo.excluido_em.is_(None)).all():
+            if not item.ativo and item.motivo_inativacao != "vencimento":
+                continue
+            situacao = situacao_validade(item)
+            if situacao == "vigente":
+                continue
+            dias = (item.data_vencimento - hoje()).days if item.data_vencimento else None
+            mensagem = {"sem_data": "Data de referência não informada", "proximo": "Próximo do vencimento", "vencido": "Validade vencida"}[situacao]
+            alertas.append({"chave": f"validade:{tipo}:{item.id}", "categoria": "validade", "tipo": tipo,
+                            "item": item, "mensagem": mensagem, "dias": dias, "situacao": situacao})
+    for r in Rotograma.query.filter(Rotograma.excluido_em.is_(None)).all():
+        for problema in problemas_rotograma(r):
+            alertas.append(dict(problema, categoria="composicao", mensagem=problema["motivo"]))
+    return alertas
+
+
+def obter_cadastro(tipo, item_id):
+    modelo = {"cerca": Cerca, "posto": Posto, "rotograma": Rotograma}.get(tipo)
+    if modelo is None:
+        abort(404)
+    return db.get_or_404(modelo, item_id)
+
+
+def destino_cadastro(tipo, item_id):
+    return url_for("detalhe_rotograma", item_id=item_id) if tipo == "rotograma" else url_for("detalhe_cadastro", tipo=tipo, item_id=item_id)
+
+
+@app.route("/alertas")
+def listar_alertas():
+    categoria = request.args.get("categoria", "")
+    alertas = [a for a in coletar_alertas() if not categoria or a["categoria"] == categoria]
+    return render_template("alertas.html", alertas=alertas, categoria=categoria,
+                           rotina=db.session.get(ControleRotina, "vencimentos"))
+
+
+@app.route("/cadastros/<tipo>/<int:item_id>")
+def detalhe_cadastro(tipo, item_id):
+    item = obter_cadastro(tipo, item_id)
+    if tipo == "rotograma":
+        return redirect(destino_cadastro(tipo, item_id))
+    return render_template("detalhe_cadastro.html", item=item, tipo=tipo,
+                           rotogramas=rotogramas_vinculados(tipo, item_id))
+
+
+@app.route("/cadastros/<tipo>/<int:item_id>/regularizar", methods=["GET", "POST"])
+def regularizar_cadastro(tipo, item_id):
+    if tipo not in ("posto", "rotograma"):
+        abort(404)
+    item = obter_cadastro(tipo, item_id)
+    if item.excluido_em:
+        abort(409, description="Registros excluídos não podem ser regularizados.")
+    if request.method == "POST":
+        conferir_versao(item)
+        try:
+            referencia = ler_referencia(request.form.get("data_referencia", ""), obrigatoria=True, regularizacao=True)
+        except ValueError as exc:
+            flash(str(exc), "erro")
+            return render_template("regularizar.html", item=item, tipo=tipo), 400
+        alteracoes = {"data_referencia": referencia, "data_vencimento": vencimento(referencia)}
+        if item.motivo_inativacao == "vencimento":
+            alteracoes.update(ativo=True, motivo_inativacao=None)
+        mudou = False
+        for campo, novo in alteracoes.items():
+            anterior = getattr(item, campo)
+            if anterior != novo:
+                setattr(item, campo, novo)
+                registro = registrar_historico(tipo, item.id, item.nome, campo, anterior, novo, "regularizacao")
+                if tipo == "posto":
+                    criar_pendencias(registro, rotogramas_vinculados(tipo, item.id))
+                mudou = True
+        if mudou:
+            db.session.commit()
+        flash("Validade regularizada. Inativações manuais foram respeitadas.", "sucesso")
+        return redirect(destino_cadastro(tipo, item_id))
+    return render_template("regularizar.html", item=item, tipo=tipo)
+
+
+@app.route("/cadastros/<tipo>/<int:item_id>/manter-inativo", methods=["POST"])
+def manter_inativo(tipo, item_id):
+    item = obter_cadastro(tipo, item_id)
+    conferir_versao(item)
+    if item.excluido_em:
+        abort(409, description="Registro excluído.")
+    for campo, novo in (("ativo", False), ("motivo_inativacao", "manual")):
+        anterior = getattr(item, campo)
+        if anterior != novo:
+            setattr(item, campo, novo)
+            registro = registrar_historico(tipo, item.id, item.nome, campo, anterior, novo, "inativacao_manual")
+            if tipo != "rotograma":
+                criar_pendencias(registro, rotogramas_vinculados(tipo, item.id))
+    db.session.commit()
+    flash("Registro mantido inativo por decisão manual. Vínculos preservados.", "sucesso")
+    return redirect(destino_cadastro(tipo, item_id))
+
+
+@app.route("/cadastros/<tipo>/<int:item_id>/excluir", methods=["GET", "POST"])
+def excluir_cadastro(tipo, item_id):
+    item = obter_cadastro(tipo, item_id)
+    rotogramas = rotogramas_vinculados(tipo, item_id)
+    if request.method == "POST":
+        conferir_versao(item)
+        if request.form.get("confirmar") != "sim":
+            abort(400, description="Confirme a exclusão lógica.")
+        if not item.excluido_em:
+            item.excluido_em = agora_utc()
+            ativo_anterior = item.ativo
+            item.ativo = False
+            if ativo_anterior:
+                registrar_historico(tipo, item.id, item.nome, "ativo", ativo_anterior, False, "exclusao_logica")
+            registro = registrar_historico(tipo, item.id, item.nome, "excluido_em", None, item.excluido_em, "exclusao_logica")
+            if tipo != "rotograma":
+                criar_pendencias(registro, rotogramas)
+            db.session.commit()
+        flash("Registro excluído das operações. Histórico e vínculos foram preservados.", "sucesso")
+        return redirect(url_for({"cerca": "listar_cercas", "posto": "listar_postos", "rotograma": "listar_rotogramas"}[tipo]))
+    return render_template("excluir.html", item=item, tipo=tipo, rotogramas=rotogramas)
+
+
+def verificar_vencimentos(dia=None):
+    """Uma concessão no banco coordena processos; versões evitam gravações repetidas."""
+    dia = dia or hoje()
+    agora = agora_utc()
+    token = secrets.token_hex(16)
+    controle = db.session.get(ControleRotina, "vencimentos")
+    if controle is None:
+        db.session.add(ControleRotina(nome="vencimentos"))
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+    adquirido = db.session.execute(update(ControleRotina).where(
+        ControleRotina.nome == "vencimentos",
+        or_(ControleRotina.bloqueado_ate.is_(None), ControleRotina.bloqueado_ate < agora)
+    ).values(token=token, bloqueado_ate=agora + timedelta(minutes=10))).rowcount
+    db.session.commit()
+    if not adquirido:
+        return 0
+    total = 0
+    try:
+        ids = [p.id for p in Posto.query.filter(Posto.excluido_em.is_(None), Posto.ativo.is_(True), Posto.data_vencimento <= dia).all()]
+        for item_id in ids:
+            item = db.session.get(Posto, item_id, populate_existing=True)
+            if not item or item.excluido_em or not item.ativo or not item.data_vencimento or item.data_vencimento > dia:
+                continue
+            try:
+                anterior = item.motivo_inativacao
+                item.ativo = False
+                item.motivo_inativacao = "vencimento"
+                registrar_historico("posto", item.id, item.nome, "ativo", True, False, "inativacao_automatica")
+                registrar_historico("posto", item.id, item.nome, "motivo_inativacao", anterior,
+                                    f"vencimento em {item.data_vencimento.isoformat()}", "inativacao_automatica")
+                db.session.commit()
+                total += 1
+            except StaleDataError:
+                db.session.rollback()
+        db.session.execute(update(ControleRotina).where(ControleRotina.nome == "vencimentos", ControleRotina.token == token)
+                           .values(ultima_execucao=agora_utc()))
+        db.session.commit()
+        return total
+    finally:
+        db.session.rollback()
+        db.session.execute(update(ControleRotina).where(ControleRotina.nome == "vencimentos", ControleRotina.token == token)
+                           .values(bloqueado_ate=None, token=None))
+        db.session.commit()
+
+
+@app.cli.command("verificar-validade")
+def comando_validade():
+    print(f"Postos inativados: {verificar_vencimentos()}")
+
+
+def iniciar_verificador():
+    if app.config.get("TESTING") or os.getenv("DESATIVAR_VERIFICADOR") == "1":
+        return
+    if "verificador" not in app.extensions:
+        intervalo = max(1, int(os.getenv("INTERVALO_VERIFICACAO_SEGUNDOS", "900")))
+        app.extensions["verificador"] = VerificadorInterno(app, verificar_vencimentos, intervalo)
+        atexit.register(app.extensions["verificador"].encerrar)
+    app.extensions["verificador"].iniciar()
+
+
+@app.errorhandler(StaleDataError)
+def conflito_versao(error):
+    db.session.rollback()
+    return render_template("conflito.html", mensagem="Outro usuário ou o verificador alterou este registro. Recarregue a página antes de tentar novamente."), 409
+
+
+@app.errorhandler(409)
+def conflito_http(error):
+    db.session.rollback()
+    return render_template("conflito.html", mensagem=error.description), 409
+
+
+@app.errorhandler(IntegrityError)
+def conflito_integridade(error):
+    db.session.rollback()
+    return render_template("conflito.html", mensagem="Não foi possível salvar: o registro ou vínculo já existe ou foi alterado por outra operação."), 409
+
+
+@app.errorhandler(OperationalError)
+def banco_ocupado(error):
+    db.session.rollback()
+    app.logger.exception("Banco indisponível ou ocupado")
+    return render_template("conflito.html", mensagem="O banco está ocupado ou indisponível. Aguarde e tente novamente."), 503
+
+
+
+def criar_aplicacao():
     with app.app_context():
         atualizar_estrutura()
-    app.run(debug=os.getenv("FLASK_DEBUG", "0") == "1")
+        verificar_vencimentos()
+    iniciar_verificador()
+    return app
+
+
+if __name__ == "__main__":
+    criar_aplicacao()
+    app.run(debug=os.getenv("FLASK_DEBUG", "0") == "1", use_reloader=False)

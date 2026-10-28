@@ -1,5 +1,5 @@
 {% macro status() %}
-<label>Status<select name="status"><option value="">Todos</option>{% for valor, titulo in [('ativo','Ativos'),('inativo','Inativos')] %}<option value="{{ valor }}" {% if request.args.get('status') == valor %}selected{% endif %}>{{ titulo }}</option>{% endfor %}</select></label>
+<label>Status<select name="status"><option value="">Todos</option>{% for valor, titulo in [('ativo','Ativos'),('inativo','Inativos'),('manual','Inativos manualmente'),('vencimento','Inativos por vencimento'),('excluido','Excluídos')] %}<option value="{{ valor }}" {% if request.args.get('status') == valor %}selected{% endif %}>{{ titulo }}</option>{% endfor %}</select></label>
 {% endmacro %}
 {% macro rotograma(itens) %}
 <label>Rotograma<select name="rotograma"><option value="">Todos os vínculos</option><option value="sem_vinculo" {% if request.args.get('rotograma') == 'sem_vinculo' %}selected{% endif %}>Sem vínculo com rotogramas</option>{% for item in itens %}<option value="{{ item.id }}" {% if request.args.get('rotograma') == item.id|string %}selected{% endif %}>#{{ item.id }} · {{ item.nome }}{{ ' (inativo)' if not item.ativo else '' }}</option>{% endfor %}</select></label>

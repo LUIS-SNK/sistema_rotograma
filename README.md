@@ -1,142 +1,151 @@
-# Gestão de Rotogramas | MVP
+# Gestão de Rotogramas — v2.0.0
 
-Aplicação interna inicial em Python + Flask + SQLAlchemy, preparada para MySQL.
+Aplicação interna em Python, Flask e SQLAlchemy para gerenciar cercas, postos,
+rotogramas, vínculos, validade, histórico e pendências. Não executa nem monitora
+rotogramas. Compatível com SQLite e preparada para MySQL via PyMySQL.
 
-## O que já está implementado
+Consulte [CHANGELOG.md](CHANGELOG.md) para a descrição da atualização.
 
-- Dashboard com contagem de cercas, postos, rotogramas e pendências abertas.
-- Cadastro, edição e ativação/inativação de cercas, postos e rotogramas.
-- Vínculo de várias cercas e postos a cada rotograma, com proteção contra duplicidade.
-- Histórico de alterações cadastrais.
-- Histórico de inclusão e remoção de vínculos.
-- Uma pendência individual por alteração histórica e por rotograma afetado.
-- Conclusão explícita de pendência com data/hora.
-- Consulta de histórico e filtro de pendências por status.
+## Instalação no Windows
 
-## Melhorias da interface e consultas
+Requisitos: Python 3.10 ou superior e internet para instalar dependências.
 
-- Modos claro e escuro, com preferencia salva no navegador.
-- Pesquisa pelo nome do posto ao associar a um rotograma.
-- Ordenacao alfabetica A-Z e buscas sem diferenciar maiusculas ou acentos.
-- Bloqueio de nomes duplicados nos cadastros e edicoes, incluindo registros inativos.
-- Tipos de posto: Refeicao, Refeicao/Pernoite, Abastecimento,
-  Abastecimento/Refeicao/Pernoite e Abastecimento/Refeicao.
-- Filtros combinados de postos por rotograma, tipo, cidade, UF e status.
-- Filtros de cercas por rotograma, tipo e status.
-- Consulta de postos e cercas sem vinculo com rotogramas.
-- Filtros de rotogramas por status e por pendencias abertas.
-- Contagem de resultados e botao para limpar filtros.
-- Alteracoes no tipo do posto tambem geram historico e pendencias.
+1. Baixe o projeto em **Code > Download ZIP** e extraia a pasta completa.
+2. Execute **instalar.bat** e aguarde a confirmação.
+3. Execute **iniciar.bat**.
+4. Abra <http://127.0.0.1:5000> e mantenha a janela aberta.
 
-## Instalacao rapida no Windows
+A instalação cria `.venv`. O banco SQLite é criado em `instance/rotogramas.db`.
+Ambientes virtuais não devem ser copiados entre computadores. O repositório não
+inclui cadastros reais, bancos, credenciais ou arquivos `.env` locais.
 
-1. Baixe o repositorio em **Code > Download ZIP** e extraia a pasta completa.
-2. Com Python 3.10 ou superior instalado e internet, execute `instalar.bat`.
-3. Apos a instalacao, execute `iniciar.bat`.
-4. Abra <http://127.0.0.1:5000> e mantenha a janela do servidor aberta.
+### Atualizar uma instalação existente
 
-O instalador prepara `.venv` e instala as dependencias. Nao copie ambientes
-virtuais entre computadores. Se `python` nao estiver disponivel no terminal,
-verifique a instalacao ou use o comando `py`.
+1. Pare o servidor e faça uma cópia da pasta `instance` e do arquivo `.env`, se houver.
+2. Substitua os arquivos do programa pela nova versão, preservando `instance` e `.env`.
+3. Execute **atualizar.bat**. Ele instala as dependências e aplica a migração.
+4. Execute **iniciar.bat** e atualize o navegador com Ctrl + F5.
 
-O banco SQLite e criado automaticamente em `instance/rotogramas.db` no primeiro
-inicio. Cada computador possui sua propria copia dos dados, sem sincronizacao.
-O repositorio nao inclui bancos, cadastros reais, arquivos `.env` ou ambientes
-virtuais. Para transferir cadastros entre computadores, feche o sistema e copie
-separadamente a pasta `instance`, preservando antes uma copia de seguranca do destino.
+A migração também é aplicada na inicialização padrão e cria um backup prévio do
+SQLite em `instance/backups` quando há uma revisão pendente. Não há remoção de
+dados. Para MySQL, faça backup externo antes de migrar. Não execute migrações
+simultaneamente em vários processos. O downgrade destrutivo é bloqueado; para
+restaurar uma versão anterior, use código e backup compatíveis.
 
-Ao iniciar com `python app.py`, a coluna de tipo de posto e adicionada
-automaticamente a bancos antigos, preservando os registros existentes. Em outros
-modos de inicializacao, execute antes `python -m flask --app app atualizar-banco`.
-Postos antigos aparecem com tipo nao informado ate serem classificados na edicao.
+## Validade e situações dos cadastros
 
-## Requisitos
+- Postos e rotogramas novos exigem data de referência manual.
+- Vencimento = referência + 24 meses de calendário. 29/02/2024 vence em 28/02/2026.
+- Datas futuras não são aceitas; datas retroativas podem produzir um registro vencido.
+- O vencimento começa no início da data calculada, no fuso America/Sao_Paulo.
+- O alerta começa um mês de calendário antes, não necessariamente 30 dias.
+- Postos ativos vencidos são inativados automaticamente, com histórico e motivo.
+- Rotogramas vencidos são apenas sinalizados: sua inativação automática não foi adotada.
+- Regularização exige uma referência que resulte em validade vigente.
+- Regularizar reativa postos inativados por vencimento, mas respeita inativações manuais.
+- Manter inativo é uma decisão explícita e não exige regularização imediata.
+- Atividade, validade, exclusão e pendências são informações separadas.
 
-- Python 3.10 ou superior
-- MySQL 8 (para o uso previsto) ou SQLite para avaliação local
+Registros antigos continuam sem referência até preenchimento posterior. Não são
+usadas datas de criação como referência. Cercas antigas não recebem localização
+fictícia. A criação no sistema continua preservada para auditoria. Datas e horários
+de auditoria são armazenados/exibidos em UTC; datas de validade usam São Paulo.
 
-## Executar localmente com SQLite
+## Verificador interno — sem Agendador de Tarefas
 
-1. Abra o terminal na pasta do projeto.
-2. Crie um ambiente virtual:
+`iniciar.bat` executa `servidor.py`, que prepara o banco, processa vencimentos
+pendentes e inicia o servidor Waitress e uma thread interna. A rotina repete a
+checagem a cada 900 segundos (15 minutos), mesmo sem acessos pelo navegador.
 
-   ```bash
-   python -m venv .venv
-   ```
+O computador e o processo precisam estar funcionando. Ao reiniciar, o sistema
+recupera os vencimentos ocorridos enquanto estava desligado. Operações de vínculo
+também verificam a validade, sem esperar o próximo ciclo. A concessão no banco e
+as versões dos registros protegem contra processamento concorrente.
 
-3. Ative o ambiente virtual.
+Comandos alternativos:
 
-   Windows PowerShell:
+```powershell
+.\.venv\Scripts\python.exe servidor.py
+.\.venv\Scripts\python.exe -m flask --app app atualizar-banco
+.\.venv\Scripts\python.exe -m flask --app app verificar-validade
+```
 
-   ```powershell
-   .\.venv\Scripts\Activate.ps1
-   ```
+`python app.py` também ativa o verificador, com servidor de desenvolvimento e sem
+reloader. Para produção, prefira `servidor.py`. Se usar WSGI próprio, inicialize
+pela factory `app:criar_aplicacao` (por exemplo, `waitress-serve --call app:criar_aplicacao`).
+A importação simples `app:app` ou `flask run` não inicia a rotina interna.
+A configuração padrão pressupõe uma instância central; clientes acessam pelo navegador.
 
-   macOS/Linux:
+## Alertas e pendências
 
-   ```bash
-   source .venv/bin/activate
-   ```
+**Alertas atuais** são calculados a partir dos dados atuais e não possuem botão
+para ocultar problemas ainda existentes. Incluem validade e composição dos
+rotogramas. Corrigir a causa ou remover o vínculo explicitamente resolve o aviso.
+Cada elemento indisponível gera um aviso por rotograma, sem duplicação.
 
-4. Instale as dependências:
+**Pendências de verificação** são os eventos históricos já existentes. Continuam
+sendo concluídas manualmente e não desaparecem ao regularizar um cadastro.
+Um rotograma pode estar ativo, ter validade vencida e ter vários problemas de
+composição ao mesmo tempo; cada condição é mostrada separadamente.
 
-   ```bash
-   pip install -r requirements.txt
-   ```
+## Exclusão e concorrência
 
-5. Inicie a aplicação:
+A exclusão é lógica: requer confirmação, mostra vínculos afetados, mantém todos
+os registros e relacionamentos e bloqueia novos vínculos. Excluídos são acessíveis
+pelo filtro de situação. Dependências continuam sinalizadas até o vínculo ser
+tratado pelo usuário. Não há exclusão física nem restauração automática.
 
-   Windows PowerShell:
+Formulários e ações usam controle de versão. Uma tela desatualizada não pode
+sobrescrever silenciosamente uma alteração feita por outro usuário ou pelo
+verificador. Em conflito, volte para recuperar os dados digitados, compare com
+uma aba atualizada e tente novamente. Operações de banco são transacionais.
 
-   ```powershell
-   $env:FLASK_DEBUG="1"
-   python app.py
-   ```
+## Cercas, buscas e aparência
 
-   macOS/Linux:
+- Cidade e UF obrigatórias em novas cercas, com 27 siglas oficiais.
+- Cercas antigas podem continuar sem localização; ao preencher, informe Cidade e UF juntas.
+- Localização Cidade – UF nas consultas e na composição do rotograma.
+- Histórico e pendências para alterações de localização, sem modificar vínculos.
+- Filtros combináveis por status, tipo, localização, rotograma e validade.
+- Rotogramas filtráveis por verificações abertas e por problemas atuais de composição.
+- Pesquisa de postos ao vincular, nomes em A–Z, busca sem diferenças de acentos ou caixa.
+- Nomes duplicados bloqueados; temas claro e escuro com preferência no navegador.
 
-   ```bash
-   FLASK_DEBUG=1 python app.py
-   ```
+## Configuração e banco
 
-6. Acesse `http://127.0.0.1:5000`.
+Sem `.env`, utiliza SQLite local. Cada computador com uma instalação separada
+possui seus próprios dados, sem sincronização. Para uso compartilhado, hospede uma
+instância central e configure o acesso da equipe conforme a política da empresa.
 
-Sem `DATABASE_URL`, a aplicação utiliza `sqlite:///rotogramas.db` e cria as tabelas automaticamente ao iniciar.
+Copie `.env.example` para `.env` somente se precisar personalizar a configuração.
+Não publique credenciais. Exemplo de MySQL:
 
-## Configurar MySQL
+```env
+DATABASE_URL=mysql+pymysql://USUARIO:SENHA@localhost:3306/rotogramas
+SECRET_KEY=SUBSTITUA-POR-UMA-CHAVE-ALEATORIA
+INTERVALO_VERIFICACAO_SEGUNDOS=900
+HOST=127.0.0.1
+PORT=5000
+```
 
-1. Crie o banco:
+Crie o banco MySQL com utf8mb4 antes de executar a migração. A suíte foi executada
+em SQLite; é necessário validar migração e concorrência no MySQL do ambiente antes
+de adotá-lo. `DESATIVAR_VERIFICADOR=1` é reservado para testes ou implantação com
+outro processo central responsável; não o utilize na instalação padrão.
 
-   ```sql
-   CREATE DATABASE rotogramas
-     CHARACTER SET utf8mb4
-     COLLATE utf8mb4_unicode_ci;
-   ```
+## Testes
 
-2. Copie `.env.example` para `.env`.
-3. Atualize `DATABASE_URL` com usuário, senha e host do seu MySQL.
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
 
-   Exemplo:
+Os testes usam bancos temporários e verificam datas, bissextos, notificações,
+regularização, exclusão, vínculos, concorrência e migrações sem alterar os cadastros
+reais. O módulo `tests/test_validade.py` contém os cenários desta atualização.
 
-   ```env
-   DATABASE_URL=mysql+pymysql://usuario:senha@localhost:3306/rotogramas
-   SECRET_KEY=coloque-uma-chave-aleatoria-longa-aqui
-   FLASK_DEBUG=0
-   ```
+## Antes de disponibilizar em produção
 
-4. Execute `python app.py`. As tabelas serão criadas automaticamente nesta versão inicial.
-
-## Regras implementadas
-
-- Alterações em campos de cercas e postos geram histórico e pendências para todos os rotogramas vinculados.
-- Cada campo alterado é um evento de histórico independente. Portanto, se dois campos forem alterados numa mesma gravação, serão criadas duas pendências por rotograma vinculado.
-- Alterações dos dados gerais do rotograma ficam no histórico, mas não geram pendências.
-- Inclusão ou remoção de vínculo gera histórico e uma pendência para o rotograma cuja composição mudou.
-- Visualizar uma pendência não a conclui. É preciso clicar em **Marcar como verificada**.
-- A aplicação não registra o usuário responsável, conforme requisito definido.
-
-## Antes de usar em produção
-
-Esta é uma primeira versão para desenvolvimento, não uma implantação pronta para produção. Antes de disponibilizar a aplicação na rede, implementar autenticação e autorização, proteção CSRF em formulários, logs técnicos, backup e restauração, migrações de banco (ex.: Flask-Migrate), testes automatizados e configuração segura de produção. Não use o servidor de desenvolvimento do Flask em produção.
-
-Também vale revisar a política de pendências caso existam muitos usuários: nesta versão, a pendência é uma fila compartilhada do sistema e qualquer usuário com acesso poderá concluí-la.
+Configurar autenticação/autorização, proteção CSRF, chave secreta segura, HTTPS,
+backup e restauração e monitoramento conforme o ambiente da empresa. Login e
+permissões não foram adicionados nesta atualização. O histórico não identifica
+usuários individuais, e a fila de verificações continua compartilhada.
