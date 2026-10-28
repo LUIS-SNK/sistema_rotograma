@@ -5,11 +5,10 @@ from pathlib import Path
 import secrets
 import threading
 import atexit
-import sys
 from decimal import Decimal, InvalidOperation
 
 from dotenv import load_dotenv
-from flask import Flask, abort, flash, redirect, render_template, request, url_for, has_request_context, g
+from flask import Flask, abort, flash, redirect, render_template, request, url_for
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import UniqueConstraint, func, or_, inspect, text, update, and_, event
 from sqlalchemy.orm.exc import StaleDataError
@@ -50,9 +49,6 @@ class Cerca(db.Model):
     nome = db.Column(db.String(120), nullable=False, index=True)
     cidade = db.Column(db.String(100), nullable=True)
     estado = db.Column(db.String(2), nullable=True)
-    latitude = db.Column(db.Float, nullable=True)
-    longitude = db.Column(db.Float, nullable=True)
-    geo_habilitada = db.Column(db.Boolean, nullable=False, default=False, server_default="0")
     tipo = db.Column(db.String(80), nullable=False, default="")
     velocidade = db.Column(db.Numeric(7, 2), nullable=True)
     descricao = db.Column(db.Text, nullable=True)
@@ -93,12 +89,6 @@ class Rotograma(db.Model):
     nome = db.Column(db.String(150), nullable=False, index=True)
     origem = db.Column(db.String(180), nullable=True)
     destino = db.Column(db.String(180), nullable=True)
-    origem_uf = db.Column(db.String(2), nullable=True)
-    destino_uf = db.Column(db.String(2), nullable=True)
-    origem_latitude = db.Column(db.Float, nullable=True)
-    origem_longitude = db.Column(db.Float, nullable=True)
-    destino_latitude = db.Column(db.Float, nullable=True)
-    destino_longitude = db.Column(db.Float, nullable=True)
     descricao = db.Column(db.Text, nullable=True)
     ativo = db.Column(db.Boolean, nullable=False, default=True)
     criado_em = db.Column(db.DateTime, nullable=False, default=agora_utc)
@@ -137,9 +127,6 @@ class RotogramaPosto(db.Model):
 class HistoricoAlteracao(db.Model):
     __tablename__ = "historico_alteracoes"
     id = db.Column(db.Integer, primary_key=True)
-    usuario_id = db.Column(db.Integer, db.ForeignKey("usuarios.id"), nullable=True)
-    origem_operacao = db.Column(db.String(20), nullable=True)
-    autor = db.relationship("Usuario")
     tipo_item = db.Column(db.String(30), nullable=False)  # cerca, posto, rotograma, vinculo_cerca, vinculo_posto
     item_id = db.Column(db.Integer, nullable=True)
     item_nome = db.Column(db.String(180), nullable=False)
@@ -238,18 +225,6 @@ def opcoes_cadastro():
             "data_br": lambda d: d.strftime("%d/%m/%Y") if d else "Não informada"}
 
 
-
-def ler_coordenadas_form(prefixo=""):
-    from ors_client import validar_ponto
-    lat=request.form.get(prefixo+"latitude", "").strip().replace(",", ".")
-    lon=request.form.get(prefixo+"longitude", "").strip().replace(",", ".")
-    if not lat and not lon:return None, None
-    if not lat or not lon:raise ValueError("Informe latitude e longitude juntas.")
-    try:
-        longitude,latitude=validar_ponto([float(lon),float(lat)])
-        return latitude,longitude
-    except (ValueError,TypeError):raise ValueError("Latitude deve estar entre -90 e 90; longitude entre -180 e 180.")
-
 @app.before_request
 def validar_cadastros():
     if request.method != "POST":
@@ -302,13 +277,6 @@ def validar_cadastros():
         uf = request.form.get("estado", "").strip().upper()
         if ((item is None or bool(item.cidade) or bool(item.estado) or cidade or uf) and (not cidade or uf not in UFS)) or len(cidade) > 100:
             erro = "Informe a cidade (até 100 caracteres) e selecione uma UF oficial."
-    if not erro and tipo in ("cerca", "rotograma"):
-        try:
-            for prefixo in ([""] if tipo == "cerca" else ["origem_", "destino_"]):
-                ler_coordenadas_form(prefixo)
-                if prefixo and request.form.get(prefixo+"uf", "").strip().upper() not in ("", *UFS):
-                    raise ValueError("Selecione uma UF oficial para a origem e o destino.")
-        except ValueError as exc:erro=str(exc)
     if erro:
         flash(erro, "erro")
         return render_template(template, **{tipo: item}), status
@@ -354,11 +322,9 @@ def texto(valor):
 
 def registrar_historico(tipo_item, item_id, item_nome, campo, anterior, novo, operacao="edicao"):
     registro = HistoricoAlteracao(
-        usuario_id=getattr(getattr(g, "usuario", None), "id", None) if has_request_context() else None,
-        origem_operacao="usuario" if has_request_context() and getattr(g, "usuario", None) else "sistema",
         tipo_item=tipo_item,
         item_id=item_id,
-        item_nome=str(item_nome)[:180],
+        item_nome=item_nome,
         campo=campo,
         valor_anterior=texto(anterior),
         valor_novo=texto(novo),
@@ -393,12 +359,6 @@ def criar_pendencias(registro, rotogramas, tipo="alteracao_cadastral"):
 
 def salvar_alteracoes_cadastro(objeto, tipo_item, campos, dados, gerar_pendencias=True):
     campos = dict(campos)
-    if tipo_item in ("cerca", "rotograma"):
-        for prefixo in ([""] if tipo_item == "cerca" else ["origem_", "destino_"]):
-            latitude,longitude=ler_coordenadas_form(prefixo)
-            campos[prefixo+"latitude"] = lambda v, valor=latitude: valor
-            campos[prefixo+"longitude"] = lambda v, valor=longitude: valor
-            if prefixo:campos[prefixo+"uf"] = lambda v: v.strip().upper() or None
     if tipo_item in ("posto", "rotograma"):
         campos["data_referencia"] = lambda v: ler_referencia(v, obrigatoria=bool(objeto.data_referencia))
         campos["data_vencimento"] = lambda v: vencimento(ler_referencia(dados.get("data_referencia", "")))
@@ -492,12 +452,10 @@ def nova_cerca():
         cerca = Cerca(nome=nome, cidade=request.form.get("cidade", "").strip(), estado=request.form.get("estado", "").strip().upper(), tipo=request.form.get("tipo", "").strip(),
                       velocidade=velocidade, descricao=request.form.get("descricao", "").strip(),
                       ativo=bool_form(request.form.get("ativo")))
-        cerca.latitude,cerca.longitude=ler_coordenadas_form()
-        cerca.geo_habilitada=True
         cerca.motivo_inativacao = None if cerca.ativo else "manual"
         db.session.add(cerca)
         db.session.flush()
-        for campo, valor in [("latitude", cerca.latitude), ("longitude", cerca.longitude), ("cidade", cerca.cidade), ("estado", cerca.estado), ("nome", nome), ("tipo", cerca.tipo), ("velocidade", velocidade),
+        for campo, valor in [("cidade", cerca.cidade), ("estado", cerca.estado), ("nome", nome), ("tipo", cerca.tipo), ("velocidade", velocidade),
                              ("descricao", cerca.descricao), ("ativo", cerca.ativo)]:
             registrar_historico("cerca", cerca.id, cerca.nome, campo, None, valor, "cadastro")
         db.session.commit()
@@ -631,14 +589,10 @@ def novo_rotograma():
                               destino=request.form.get("destino", "").strip(),
                               descricao=request.form.get("descricao", "").strip(),
                               ativo=bool_form(request.form.get("ativo")))
-        for prefixo in ("origem_", "destino_"):
-            latitude,longitude=ler_coordenadas_form(prefixo)
-            setattr(rotograma,prefixo+"latitude",latitude);setattr(rotograma,prefixo+"longitude",longitude)
-            setattr(rotograma,prefixo+"uf",request.form.get(prefixo+"uf", "").strip().upper() or None)
         preparar_novo(rotograma)
         db.session.add(rotograma)
         db.session.flush()
-        for campo in ("nome", "origem", "destino", "origem_uf", "destino_uf", "origem_latitude", "origem_longitude", "destino_latitude", "destino_longitude", "descricao", "ativo", "data_referencia", "data_vencimento", "motivo_inativacao"):
+        for campo in ("nome", "origem", "destino", "descricao", "ativo", "data_referencia", "data_vencimento", "motivo_inativacao"):
             registrar_historico("rotograma", rotograma.id, rotograma.nome, campo, None, getattr(rotograma, campo), "cadastro")
         db.session.commit()
         flash("Rotograma cadastrado com sucesso.", "sucesso")
@@ -885,10 +839,6 @@ def coletar_alertas():
     for r in Rotograma.query.filter(Rotograma.excluido_em.is_(None)).all():
         for problema in problemas_rotograma(r):
             alertas.append(dict(problema, categoria="composicao", mensagem=problema["motivo"]))
-    for a in geografia.Analise.query.filter_by(status="pendente").all():
-        if geografia.disponiveis(a.cerca,a.rotograma) and a.tarefa.assinatura==geografia.assinatura(a.cerca,a.rotograma):
-            alertas.append({"chave":f"analise:{a.id}","categoria":"analise_geografica","tipo":"cerca","item":a.cerca,"analise_id":a.id,
-                            "mensagem":f"Analisar proximidade com {a.rotograma.nome}: aproximadamente {a.distancia_m/1000:.2f} km do trajeto estimado."})
     return alertas
 
 
@@ -1088,14 +1038,7 @@ def criar_aplicacao():
         atualizar_estrutura()
         verificar_vencimentos()
     iniciar_verificador()
-    geografia.iniciar()
     return app
-
-
-import acesso
-acesso.instalar(sys.modules[__name__])
-import geografia
-geografia.instalar(sys.modules[__name__])
 
 
 if __name__ == "__main__":

@@ -1,19 +1,5 @@
 # Histórico de versões
 
-## 2.1.0 — 28/10/2026
-
-- Análises geográficas de novas cercas com OpenRouteService, perfil de caminhão e margem configurável de 10 km.
-- Cache persistente de geocodificações e trajetos, com versões de geometria e validade.
-- Fila interna separada da validade, com orçamento de requisições, retomada, falhas e cobertura parcial explícita.
-- Confirmação de localizações ambíguas e coordenadas opcionais em cercas e extremos dos rotogramas.
-- Sugestões de vínculo sujeitas a decisão humana, dispensa, autoria, justificativa e histórico.
-- Controle de concorrência, invalidação de sugestões alteradas e prevenção de notificações duplicadas.
-- Login individual, administração de contas, hashes de senha, sessões revogáveis e CSRF em todos os formulários.
-- Primeiro administrador configurado no terminal, sem credenciais padrão.
-- Migração aditiva preservando cadastros, vínculos, histórico e datas anteriores.
-- Integração externa desligada por padrão até configuração local da chave; nenhuma credencial foi incluída no código.
-- Testes de regressão e integração com bancos temporários, incluindo API indisponível e cache vencido.
-
 ## 2.0.0 — 28/10/2026
 
 ### Validade e regularização

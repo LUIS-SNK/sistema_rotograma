@@ -39,7 +39,7 @@ if errorlevel 1 goto erro_dependencias
 
 echo.
 echo [3/3] Verificando a instalacao...
-".venv\Scripts\python.exe" -c "import flask, flask_sqlalchemy, pymysql, dotenv, alembic, tzdata, waitress, flask_wtf"
+".venv\Scripts\python.exe" -c "import flask, flask_sqlalchemy, pymysql, dotenv, alembic, tzdata, waitress"
 if errorlevel 1 goto erro_dependencias
 
 echo.
