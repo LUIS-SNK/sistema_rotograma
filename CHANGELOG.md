@@ -2,6 +2,12 @@
 
 ## 2.2.0 — em teste na branch feature/integracao-api
 
+- Faixa direta com pontas arredondadas entre origem e destino, com raio por rotograma.
+- Sugestões por faixa independentes de cercas previamente vinculadas.
+- Coordenadas opcionais em cercas e extremos; centro municipal aproximado como alternativa explícita.
+- Esquema da cápsula na consulta do rotograma, precisão e distância indicadas nas notificações.
+- Migração aditiva de coordenadas/raio, preservando registros e reaproveitando colunas compatíveis.
+
 - Notificações agrupadas por nova cerca, com todos os rotogramas sugeridos por mesmo município ou divisa municipal.
 - Tela própria de Notificações, com alerta no Dashboard, contador por cerca, filtros e busca.
 - Decisões independentes por rotograma; alerta encerrado somente após concluir todas as sugestões.

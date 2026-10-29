@@ -9,11 +9,13 @@ from sqlalchemy import event, inspect
 from sqlalchemy.orm import backref
 import click
 import municipios
+import faixa_geografica as faixa
 
 
 def instalar(sistema):
     global S, db, app, Fila, Sugestao
     S = sistema; db = S.db; app = S.app
+    app.config.setdefault('FAIXA_RAIO_KM', faixa.raio(os.getenv('FAIXA_RAIO_KM', '30')))
 
     class Fila(db.Model):
         __tablename__ = 'fila_municipal'
@@ -65,7 +67,7 @@ def instalar(sistema):
     sessao = db.session.session_factory.class_
     event.listen(sessao, 'after_flush', capturar)
     event.listen(sessao, 'before_commit', preparar)
-    event.listen(sessao, 'after_rollback', lambda sess: sess.info.pop('municipios_alvos', None))
+    event.listen(sessao, 'after_rollback', lambda sess: (sess.info.pop('municipios_alvos', None), sess.info.pop('faixas_alteradas', None)))
 
 
 def obter_base():
@@ -85,8 +87,6 @@ def identificacao(cerca, base):
 def evidencias(cerca, base):
     chave, municipio = identificacao(cerca, base)
     cidade = municipios.normalizar(cerca.cidade)
-    if not cidade or not cerca.estado:
-        return {}
     vizinhos = set(municipio['vizinhos']) if municipio and municipio['malha'] and not municipio.get('revisar_divisas') else set()
     itens = db.session.query(S.Rotograma, S.Cerca).join(S.RotogramaCerca, S.RotogramaCerca.rotograma_id == S.Rotograma.id).join(
         S.Cerca, S.Cerca.id == S.RotogramaCerca.cerca_id).filter(
@@ -98,8 +98,8 @@ def evidencias(cerca, base):
         if rota.id in vinculados:
             continue
         codigo_ref, m_ref = identificacao(referencia, base)
-        mesmo = (codigo_ref == chave) if municipio and m_ref else (
-            municipios.normalizar(referencia.cidade) == cidade and (referencia.estado or '').upper() == cerca.estado.upper())
+        mesmo = bool(cidade and cerca.estado) and ((codigo_ref == chave) if municipio and m_ref else (
+            municipios.normalizar(referencia.cidade) == cidade and (referencia.estado or '').upper() == cerca.estado.upper()))
         vizinho = codigo_ref in vizinhos and m_ref and m_ref['malha'] and not m_ref.get('revisar_divisas')
         if not mesmo and not vizinho:
             continue
@@ -111,7 +111,31 @@ def evidencias(cerca, base):
             'referencia_nome': referencia.nome, 'cidade': referencia.cidade, 'uf': referencia.estado,
             'fonte': base['fonte'] if base else 'Comparação textual de Cidade/UF (base indisponível)',
             'base_obtida_em': base['obtida_em'] if base else None})
+    for rota in S.Rotograma.query.filter(S.Rotograma.ativo.is_(True), S.Rotograma.excluido_em.is_(None), S.Rotograma.faixa_ativa.is_(True)).all():
+        if rota.id in vinculados:
+            continue
+        comparacao = faixa.comparar(cerca, rota, base, app.config['FAIXA_RAIO_KM'])
+        if not comparacao:
+            continue
+        if rota.id in resultado:
+            resultado[rota.id][1]['faixa'] = comparacao
+        else:
+            resultado[rota.id] = (rota, {'tipo': 'faixa', 'origem_cidade': cerca.cidade, 'origem_uf': cerca.estado,
+                'cidade': cerca.cidade or '', 'uf': cerca.estado or '', 'faixa': comparacao,
+                'fonte': 'Faixa direta em modelo esférico, sem consulta a estradas'})
+    for rota, motivo in resultado.values():
+        motivo['origem_coordenadas'] = [cerca.longitude, cerca.latitude]
     return resultado
+
+
+def dados_faixa(rotograma):
+    d = faixa.dados_rotograma(rotograma, obter_base(), app.config['FAIXA_RAIO_KM'])
+    d['diagrama'] = faixa.diagrama(d)
+    return d
+
+
+def titulo_motivo(motivo):
+    return {'mesmo': 'Mesmo município', 'vizinho': 'Município vizinho (divisa)', 'faixa': 'Dentro da faixa geográfica'}[motivo['tipo']]
 
 
 def registrar(a, operacao, anterior, novo):
@@ -131,7 +155,8 @@ def disponivel(item):
 
 def origem_mudou(a, base):
     return (municipios.normalizar(a.cerca.cidade) != municipios.normalizar(a.motivo.get('origem_cidade'))
-            or (a.cerca.estado or '').upper() != (a.motivo.get('origem_uf') or '').upper())
+            or (a.cerca.estado or '').upper() != (a.motivo.get('origem_uf') or '').upper()
+            or [a.cerca.longitude, a.cerca.latitude] != a.motivo.get('origem_coordenadas', [None, None]))
 
 
 def gerar(cerca, base):
@@ -144,12 +169,15 @@ def gerar(cerca, base):
     chave, municipio = identificacao(cerca, base)
     for rota, motivo in evidencias(cerca, base).values():
         a = Sugestao.query.filter_by(cerca_id=cerca.id, rotograma_id=rota.id).first()
-        if a and not origem_mudou(a, base):
+        faixa_anterior = (a.motivo.get('faixa') or {}).get('contexto') if a else None
+        faixa_nova = (motivo.get('faixa') or {}).get('contexto')
+        if a and not origem_mudou(a, base) and a.decisao != 'cancelada' and not (
+                a.pendencia.status != 'aberta' and a.motivo['tipo'] == 'faixa' and faixa_anterior != faixa_nova):
             # Dispensas e decisões encerradas nunca são reabertas por um reprocessamento.
             continue
         if a and a.pendencia.status == 'aberta':
-            encerrar(a, 'cancelada', 'Município da nova cerca alterado.')
-        texto = 'Mesmo município' if motivo['tipo'] == 'mesmo' else 'Município vizinho (divisa)'
+            encerrar(a, 'cancelada', 'Localização da nova cerca alterada.')
+        texto = titulo_motivo(motivo)
         h = S.registrar_historico('sugestao_municipal', cerca.id, (cerca.nome + ' | ' + rota.nome)[:180],
             'nova_cerca', None, json.dumps(motivo, ensure_ascii=False), 'sugestao_municipal')
         p = S.Pendencia(rotograma_id=rota.id, historico=h, tipo='sugestao_municipal',
@@ -169,6 +197,10 @@ def gerar(cerca, base):
         fila.status = 'cobertura_parcial'; fila.mensagem = 'Mesmo município verificado. Divisas indisponíveis ou ambíguas na malha para este município.'
     else:
         fila.status = 'concluida'; fila.mensagem = 'Mesmo município e municípios com divisa verificados. Ausência de sugestão não comprova ausência de passagem.'
+    if S.Rotograma.query.filter_by(faixa_ativa=True, ativo=True, excluido_em=None).first() and not faixa.localizar(
+            cerca.cidade, cerca.estado, cerca.latitude, cerca.longitude, base):
+        fila.status = 'revisar_coordenadas'
+        fila.mensagem = 'Faixas não comparadas: informe coordenadas da cerca ou um município reconhecido com centro disponível. As relações municipais continuam sendo avaliadas.'
 
 
 def reconciliar(base):
@@ -179,19 +211,23 @@ def reconciliar(base):
         if S.RotogramaCerca.query.filter_by(cerca_id=a.cerca_id, rotograma_id=a.rotograma_id).first():
             encerrar(a, 'ja_vinculada', 'Vínculo criado por outro fluxo.'); continue
         if origem_mudou(a, base):
-            encerrar(a, 'cancelada', 'Município da cerca alterado.'); continue
+            encerrar(a, 'cancelada', 'Localização da cerca alterada.'); continue
         if a.cerca_id not in por_cerca:
             por_cerca[a.cerca_id] = evidencias(a.cerca, base)
         if a.rotograma_id not in por_cerca[a.cerca_id]:
             # Sem base não cancelar uma sugestão anterior de vizinhança.
             if not base and a.motivo['tipo'] == 'vizinho':
                 continue
+            if a.motivo['tipo'] == 'faixa' and a.rotograma.faixa_ativa and (
+                    faixa.dados_rotograma(a.rotograma, base, app.config['FAIXA_RAIO_KM'])['erro'] or
+                    not faixa.localizar(a.cerca.cidade, a.cerca.estado, a.cerca.latitude, a.cerca.longitude, base)):
+                continue
             encerrar(a, 'cancelada', 'A referência municipal ou seus vínculos deixaram de justificar a sugestão.')
         else:
             motivo = por_cerca[a.cerca_id][a.rotograma_id][1]
             if a.motivo != motivo:
                 a.motivo = motivo
-                prefixo = 'Mesmo município' if motivo['tipo'] == 'mesmo' else 'Município vizinho (divisa)'
+                prefixo = titulo_motivo(motivo)
                 a.pendencia.descricao = (prefixo + ': analisar nova cerca ' + a.cerca.nome)[:255]
                 registrar(a, 'referencia_municipal', 'Referência anterior', json.dumps(motivo, ensure_ascii=False))
 
@@ -199,9 +235,14 @@ def reconciliar(base):
 def capturar(sess, contexto):
     for obj in list(sess.new) + list(sess.dirty):
         if isinstance(obj, S.Cerca):
-            campos = ('cidade', 'estado', 'ativo', 'excluido_em')
+            campos = ('cidade', 'estado', 'ativo', 'excluido_em', 'latitude', 'longitude')
             if obj in sess.new or any(inspect(obj).attrs[c].history.has_changes() for c in campos):
                 sess.info.setdefault('municipios_alvos', set()).add((obj.id, obj in sess.new))
+        elif isinstance(obj, S.Rotograma):
+            campos = ('origem', 'destino', 'origem_uf', 'destino_uf', 'origem_latitude', 'origem_longitude',
+                      'destino_latitude', 'destino_longitude', 'faixa_ativa', 'faixa_raio_km', 'ativo', 'excluido_em')
+            if obj in sess.new or any(inspect(obj).attrs[c].history.has_changes() for c in campos):
+                sess.info['faixas_alteradas'] = True
 
 
 def preparar(sess):
@@ -212,7 +253,10 @@ def preparar(sess):
         sess.flush()
         base = obter_base()
         reconciliar(base)
-        for cerca_id, nova in sess.info.pop('municipios_alvos', set()):
+        alvos = sess.info.pop('municipios_alvos', set())
+        if sess.info.pop('faixas_alteradas', False):
+            alvos |= {(f.cerca_id, False) for f in Fila.query.all()}
+        for cerca_id, nova in alvos:
             c = sess.get(S.Cerca, cerca_id)
             if c and (nova or sess.get(Fila, cerca_id) is not None):
                 gerar(c, base)
@@ -267,12 +311,16 @@ def listar():
         if status == 'concluida' and grupo['abertas']:
             continue
         texto = ' '.join([grupo['cerca'].nome, grupo['cerca'].cidade or '', grupo['cerca'].estado or ''] +
-                         [a.rotograma.nome + ' ' + a.motivo['cidade'] for a in grupo['sugestoes']])
+                         [a.rotograma.nome + ' ' + (a.motivo.get('cidade') or '') for a in grupo['sugestoes']])
         if busca and municipios.normalizar(busca) not in municipios.normalizar(texto):
             continue
         resultado.append(grupo)
+    base = obter_base()
+    incompletas = [(r, faixa.dados_rotograma(r, base, app.config['FAIXA_RAIO_KM'])) for r in
+        S.Rotograma.query.filter_by(faixa_ativa=True, ativo=True, excluido_em=None).all()]
     return render_template('notificacoes.html', grupos=resultado, status=status, busca=busca,
-        base_municipal=obter_base(), fila_municipal=Fila.query.filter(~Fila.status.in_(['concluida', 'cancelada'])).all())
+        base_municipal=base, fila_municipal=Fila.query.filter(~Fila.status.in_(['concluida', 'cancelada'])).all(),
+        faixas_incompletas=[(r, d) for r, d in incompletas if d['erro']])
 
 
 def decidir(item_id):
@@ -298,9 +346,12 @@ def decidir(item_id):
     referencia = evidencias(a.cerca, base).get(a.rotograma_id)
     if not referencia:
         abort(409, description='O vínculo já existe ou a referência municipal não está mais disponível. Recarregue a página.')
+    if a.motivo['tipo'] == 'faixa' and (a.motivo.get('faixa') or {}).get('contexto') != (referencia[1].get('faixa') or {}).get('contexto'):
+        abort(409, description='A localização ou a faixa mudou desde a sugestão. Recarregue e reavalie os dados antes de decidir.')
     # Protege a decisão de edições/inativações concorrentes dos três cadastros.
     a.cerca.versao += 1; a.rotograma.atualizado_em = S.agora_utc()
-    ref = db.session.get(S.Cerca, referencia[1]['referencia_id']); ref.versao += 1
+    if referencia[1].get('referencia_id'):
+        ref = db.session.get(S.Cerca, referencia[1]['referencia_id']); ref.versao += 1
     if decisao == 'vincular':
         db.session.add(S.RotogramaCerca(rotograma_id=a.rotograma_id, cerca_id=a.cerca_id))
         S.registrar_historico('vinculo_cerca', a.cerca_id, (a.cerca.nome + ' | ' + a.rotograma.nome)[:180],

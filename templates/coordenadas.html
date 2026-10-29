@@ -1,0 +1,7 @@
+{% macro par(objeto, prefixo='', titulo='') %}
+<details class="full geo-details"><summary>{{ titulo or 'Coordenadas da cerca (opcional)' }}</summary><p class="muted">As coordenadas informadas têm prioridade. Sem elas, o centro aproximado da extensão municipal do IBGE será usado, quando disponível.</p><div class="form-grid">
+{% for campo,rotulo in [('latitude','Latitude'),('longitude','Longitude')] %}
+{% set chave = prefixo + campo %}{% set atual = (objeto|attr(chave)) if objeto else none %}
+<label>{{ rotulo }}{% if prefixo %} {{ 'da origem' if prefixo == 'origem_' else 'do destino' }}{% endif %}<input name="{{ chave }}" inputmode="decimal" maxlength="40" placeholder="Graus decimais" value="{{ request.form.get(chave, '') if request.method == 'POST' else (atual if atual is not none else '') }}"></label>
+{% endfor %}</div></details>
+{% endmacro %}

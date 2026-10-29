@@ -234,3 +234,67 @@ não é usada nesta funcionalidade.
 Execute os testes com `.\.venv\Scripts\python.exe -m unittest discover -s tests -q`.
 Os testes usam banco em memória e não fazem chamadas de API. A implantação em MySQL
 requer validação da migração em seu ambiente específico.
+
+
+## Faixa direta com pontas arredondadas — testes na mesma branch
+
+A faixa acrescenta uma terceira forma de sugerir rotogramas, sem consultar estradas:
+um ponto de cerca é comparado ao segmento direto entre origem e destino, com um
+raio ao redor de todo o segmento e das pontas (cápsula). O modelo de distância é
+esférico, em quilômetros, com raio terrestre médio de 6.371,0088 km; não é cálculo
+rodoviário nem levantamento geodésico de precisão.
+
+### Como testar Santos → Goiânia / Araras
+
+1. Crie ou edite um rotograma com Origem **Santos**, UF **SP**, Destino **Goiânia**,
+   UF **GO**. Ative **sugestões pela faixa deste rotograma** e informe raio **40 km**.
+2. Na consulta do rotograma, confira o esquema da faixa e a precisão dos extremos.
+3. Cadastre uma **nova cerca ativa em Araras/SP**. Coordenadas da cerca são opcionais,
+   mas são preferíveis quando conhecidas. A ausência de cercas previamente vinculadas
+   ao rotograma não impede a comparação pela faixa.
+4. Abra **Notificações**: o rotograma aparecerá se o ponto usado para a nova cerca
+   estiver dentro da faixa. O motivo informa distância à linha, raio e precisão.
+5. Analise e confirme o vínculo ou dispense. Nada é vinculado automaticamente.
+
+Com os centros aproximados da base distribuída, Araras ficou a aproximadamente
+31,68 km da linha direta Santos–Goiânia: entra em 40 km, mas não em 30 km. Coordenadas
+mais precisas podem produzir outro resultado. Isso é um teste geométrico, não uma
+confirmação de passagem pela cidade ou pela cerca.
+
+### Coordenadas e limites
+
+- Cercas aceitam latitude/longitude opcionais. Origem/destino também têm UF e pares
+  opcionais de coordenadas. Os pares devem estar completos, finitos e dentro dos
+  intervalos geográficos; o formulário aceita ponto ou vírgula decimal.
+- Coordenadas informadas têm prioridade. Sem elas, a base local inclui o centro do
+  retângulo envolvente da extensão municipal, derivado da malha IBGE. Esse ponto
+  pode estar longe da sede urbana ou da cerca: é apenas uma referência aproximada,
+  não geocodificação de endereço e não localização exata.
+- Nomes oficiais completos são reconhecidos com UF. Sem UF, somente nomes exatos
+  e não ambíguos são aceitos. Textos como `GUARIBA/SP (BONFIM)` permitem identificar
+  o município, mas não o terminal. Textos livres não reconhecidos ficam sinalizados;
+  use coordenadas para identificar o local efetivo.
+- A base contém centros aproximados de 5.570 municípios. Atualize-a com
+  **atualizar_municipios.bat**. Sem base ou cobertura, coordenadas informadas ainda
+  permitem calcular a faixa, enquanto as comparações municipais podem ficar pendentes.
+- O raio é configurável por rotograma, maior que zero e até 200 km. O padrão é 30 km
+  (`FAIXA_RAIO_KM=30` no servidor). Raio de 30 km significa até 30 km para cada lado
+  e nas pontas, resultando em cerca de 60 km de largura na parte central.
+- Rotogramas anteriores à migração ficam com a faixa desativada até que seja ativada
+  na edição. Novos formulários já oferecem a opção marcada. Não existe vínculo ou
+  alerta retroativo em massa de cercas antigas sem histórico de comparação.
+- Configurações e coordenadas relevantes alteradas revalidam as sugestões. Decisões
+  concluídas para uma faixa idêntica não são reabertas. Mudança material na faixa
+  de uma sugestão geométrica pode gerar nova análise, preservando o histórico anterior.
+- Uma relação municipal e a faixa no mesmo rotograma resultam em uma única sugestão,
+  com os motivos disponíveis. Inativações, vínculos manuais e decisões continuam
+  protegidos por revalidação e controle de versão.
+
+Não é necessário cadastrar corredores ou fornecer chave ORS. Não são enviados
+cadastros da empresa a um provedor de rotas. A importação do GeoJSON continua sendo
+uma funcionalidade separada; este incremento não importa o arquivo da empresa.
+
+Feche o servidor, execute **atualizar.bat** e **iniciar.bat**. A migração aditiva
+`20261029_03` acrescenta os campos sem substituir o banco ou recriar dados. Colunas
+compatíveis que já existam de testes anteriores são reaproveitadas. MySQL deve ser
+validado no ambiente de implantação.

@@ -32,6 +32,22 @@ def gerar_base(localidades, topologia):
             raise ValueError('Identificador municipal duplicado.')
         municipios[codigo] = {'codigo': codigo, 'nome': m['nome'], 'uf': uf['sigla'], 'vizinhos': [], 'malha': False}
     donos = defaultdict(set)
+    limites_arcos = {}
+
+    def limites(arco):
+        if arco not in limites_arcos:
+            x = y = 0; pontos = []; transformacao = topologia.get('transform')
+            for par in topologia['arcs'][arco]:
+                if transformacao:
+                    x += par[0]; y += par[1]
+                    pontos.append((x*transformacao['scale'][0]+transformacao['translate'][0], y*transformacao['scale'][1]+transformacao['translate'][1]))
+                else:
+                    pontos.append(par[:2])
+            if pontos:
+                limites_arcos[arco] = [min(p[0] for p in pontos), min(p[1] for p in pontos), max(p[0] for p in pontos), max(p[1] for p in pontos)]
+            else:
+                limites_arcos[arco] = None
+        return limites_arcos[arco]
 
     def indices(lista):
         for x in lista:
@@ -46,13 +62,20 @@ def gerar_base(localidades, topologia):
             if codigo not in municipios:
                 continue
             municipios[codigo]['malha'] = True
+            caixas = []
             for arco in set(indices(geometria.get('arcs', []))):
                 if arco < 0 or arco >= len(topologia['arcs']):
                     raise ValueError('Índice de divisa inválido na topologia.')
                 # Apenas segmentos com extensão; contato isolado por um ponto não é divisa.
                 linha = topologia['arcs'][arco]
+                caixa = limites(arco)
+                if caixa:
+                    caixas.append(caixa)
                 if len(linha) > 1 and any(p[0] != 0 or p[1] != 0 for p in linha[1:]):
                     donos[arco].add(codigo)
+            if caixas:
+                municipios[codigo]['centro'] = [round((min(c[0] for c in caixas)+max(c[2] for c in caixas))/2, 7),
+                    round((min(c[1] for c in caixas)+max(c[3] for c in caixas))/2, 7)]
     vizinhos = defaultdict(set)
     for codigos in donos.values():
         if len(codigos) > 2:
@@ -85,6 +108,11 @@ def validar_base(base):
         if chave in chaves or not m['codigo'].isdigit() or len(m['codigo']) != 7:
             raise ValueError('Identificação municipal ambígua ou inválida.')
         chaves.add(chave)
+        if m.get('centro'):
+            import math
+            lon, lat = m['centro']
+            if not all(math.isfinite(v) for v in (lon, lat)) or not -180 <= lon <= 180 or not -90 <= lat <= 90:
+                raise ValueError('Centro municipal inválido.')
         for v in m['vizinhos']:
             if v == m['codigo'] or v not in por_codigo or m['codigo'] not in por_codigo[v]['vizinhos']:
                 raise ValueError('Divisa municipal inconsistente.')
@@ -99,6 +127,10 @@ def _carregar(caminho, tamanho, modificado):
     base = validar_base(json.loads(dados))
     base['versao'] = hashlib.sha256(dados).hexdigest()
     base['indice'] = {(normalizar(m['nome']), m['uf']): m for m in base['municipios']}
+    nomes = defaultdict(list)
+    for m in base['municipios']:
+        nomes[normalizar(m['nome'])].append(m)
+    base['indice_nomes'] = dict(nomes)
     return base
 
 

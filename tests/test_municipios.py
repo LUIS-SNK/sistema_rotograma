@@ -188,6 +188,37 @@ class Sugestoes(unittest.TestCase):
   c,r1,r2=self.duas_rotas()
   self.assertIn(f'id="cerca-{c.id}"',self.c.get('/notificacoes?q=Segundo').text)
   self.assertNotIn(f'id="cerca-{c.id}"',self.c.get('/notificacoes?q=inexistenteXYZ').text)
+ def test_cenario_tres_cidades_sugere_so_mesma_e_vizinha(self):
+  c,r1,r2=self.duas_rotas()
+  ref=self.cerca('Referência distante em Santos','Santos')
+  r3=S.Rotograma(nome='Rotograma distante',ativo=True);S.db.session.add(r3);S.db.session.commit()
+  S.db.session.add(S.RotogramaCerca(cerca_id=ref.id,rotograma_id=r3.id));S.db.session.commit()
+  G.gerar(c,G.obter_base());S.db.session.commit()
+  itens=G.Sugestao.query.filter_by(cerca_id=c.id).all()
+  self.assertEqual({a.rotograma_id for a in itens},{r1.id,r2.id})
+  self.assertEqual(S.RotogramaCerca.query.filter_by(cerca_id=c.id).count(),0)
+ def test_mesmo_rotograma_em_duas_cidades_aparece_uma_vez(self):
+  r,ref=self.referencia(cidade='Mogi Guaçu')
+  vizinha=self.cerca('Referência vizinha adicional','Mogi Mirim')
+  S.db.session.add(S.RotogramaCerca(cerca_id=vizinha.id,rotograma_id=r.id));S.db.session.commit()
+  c=self.nova();itens=G.Sugestao.query.filter_by(cerca_id=c.id).all()
+  self.assertEqual(len(itens),1);self.assertEqual(itens[0].motivo['tipo'],'mesmo')
+ def test_duas_cercas_novas_mantem_notificacoes_independentes(self):
+  c,r1,r2=self.duas_rotas();outra=self.cerca('Segunda cerca nova','Mogi Guaçu')
+  grupos={g['cerca'].id:g for g in G.alertas()}
+  self.assertIn(c.id,grupos);self.assertIn(outra.id,grupos)
+  self.assertEqual(grupos[c.id]['quantidade'],2);self.assertEqual(grupos[outra.id]['quantidade'],2)
+ def test_fluxo_confirmar_um_dispensar_outro_preserva_historico(self):
+  c,r1,r2=self.duas_rotas()
+  a1=G.Sugestao.query.filter_by(cerca_id=c.id,rotograma_id=r1.id).one()
+  a2=G.Sugestao.query.filter_by(cerca_id=c.id,rotograma_id=r2.id).one()
+  self.assertEqual(self.decidir(a1,'dispensar').status_code,302)
+  self.assertEqual(self.decidir(a2,'vincular').status_code,302)
+  self.assertEqual(a1.decisao,'dispensada');self.assertEqual(a2.decisao,'vinculada')
+  self.assertEqual({v.rotograma_id for v in S.RotogramaCerca.query.filter_by(cerca_id=c.id)},{r2.id})
+  self.assertFalse(any(g['cerca'].id==c.id for g in G.alertas()))
+  historicos=S.HistoricoAlteracao.query.filter_by(item_id=c.id,tipo_operacao='decisao_municipal').all()
+  self.assertEqual(len(historicos),2);self.assertTrue(all('Pessoa de teste' in h.valor_novo for h in historicos))
  def test_telas_notificacoes(self):
   self.sugestao()
   for url in ['/','/pendencias','/pendencias?status=concluida','/notificacoes','/notificacoes?status=concluida','/historico?tipo=sugestao_municipal','/cercas/nova']:
