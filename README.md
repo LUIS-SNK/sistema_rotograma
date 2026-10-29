@@ -149,3 +149,83 @@ Configurar autenticação/autorização, proteção CSRF, chave secreta segura, 
 backup e restauração e monitoramento conforme o ambiente da empresa. Login e
 permissões não foram adicionados nesta atualização. O histórico não identifica
 usuários individuais, e a fila de verificações continua compartilhada.
+
+
+## Em desenvolvimento — sugestões municipais (v2.2)
+
+Branch: `feature/integracao-api`. A `main` continua na versão 2.0. Esta atualização
+não reinstala a integração ORS anterior e não importa o GeoJSON da empresa.
+
+Ao cadastrar uma nova cerca ativa, o sistema procura rotogramas ativos que já
+possuem cercas ativas e não excluídas no mesmo município/UF ou em municípios que
+compartilham um segmento de divisa. A relação geográfica gera uma **sugestão** em
+**Pendências**; nunca confirma a rota real nem cria vínculos automaticamente.
+Rotogramas sem cercas vinculadas nesses municípios não são identificados.
+
+A nova cerca gera no máximo uma sugestão atual por rotograma. Várias cercas de
+referência não multiplicam notificações. Um reprocessamento não reabre uma decisão
+concluída para o mesmo município da cerca. Cadastros antigos não são incluídos em
+massa: a migração cria apenas as duas tabelas novas, sem gerar sugestões retroativas.
+
+### Conferir uma sugestão
+
+1. Abra **Pendências**, também acessível pelo contador do Dashboard.
+2. Veja a nova cerca, o rotograma e a cerca de referência que motivou a sugestão.
+3. Informe o responsável e, opcionalmente, uma justificativa.
+4. Confirme a revisão e escolha **Confirmar vínculo** ou **Dispensar sugestão**.
+5. Consulte as decisões no filtro **Concluídas** e no histórico, tipo
+   **Sugestao Municipal**. Decisão, nome informado, data UTC, justificativa e a
+   evidência revalidada ficam registrados. Não existe autenticação de identidade
+   nesta versão: o responsável é informado pelo próprio operador.
+
+As ações novas têm token CSRF e controle de versão. Cercas/rotogramas inativos ou
+excluídos não podem confirmar sugestões; alterações de município e remoção da
+referência encerram sugestões que perderam a justificativa. Um vínculo feito pelo
+fluxo manual também encerra a sugestão como vínculo já existente. Decisões são
+atômicas com o vínculo e o histórico. Pendências cadastrais anteriores mantêm seu
+fluxo de verificação; a decisão municipal conclui a própria sugestão.
+
+### API e base local
+
+`dados/municipios_ibge.json.gz` acompanha o projeto: 5.571 municípios na consulta de
+Localidades utilizada. A lista de vizinhos foi derivada da malha TopoJSON nacional
+simplificada do IBGE, identificando arcos de divisa compartilhados, inclusive entre
+UFs. Contato apenas por ponto, distância entre sedes e proximidade de estrada não
+são tratados como divisa. A consulta da malha retornou 5.570 geometrias: Boa Esperança
+do Norte/MT não estava representada. Um arco ambíguo compartilhado por três áreas
+foi excluído da inferência e os municípios envolvidos sinalizados para revisão.
+A base registra data de obtenção, fontes e cobertura por município. Ela é auxiliar,
+não uma certificação dos limites municipais atuais.
+
+Fontes públicas (sem chave):
+- https://servicodados.ibge.gov.br/api/docs/localidades
+- https://servicodados.ibge.gov.br/api/docs/malhas?versao=3
+
+Para atualizar a base, execute **atualizar_municipios.bat** no servidor ou:
+
+```powershell
+.\.venv\Scripts\python.exe -m flask --app app atualizar-municipios
+```
+
+O download usa somente os endereços públicos fixos do IBGE; não envia cadastros da
+empresa. A substituição da base é atômica: falhas de rede/validação mantêm o arquivo
+anterior. Cercas novas usam o banco e a base local, sem chamadas de rede no cadastro.
+Se a base estiver ausente/inválida, a comparação textual normalizada de Cidade/UF
+continua e a vizinhança fica pendente. Grafias não encontradas e cobertura incompleta
+aparecem em **Pendências**, com atalho para corrigir o cadastro e reprocessar.
+
+Use o nome oficial do município e a UF. A comparação ignora acentos, caixa e espaços
+repetidos, mas não adivinha abreviações, distritos ou erros de digitação. Município
+vizinho significa divisa na malha utilizada, não distância real entre cercas.
+
+### Atualização e validação
+
+Feche o servidor, execute **atualizar.bat** e depois **iniciar.bat**. A migração
+`20261029_02` é aditiva e preserva o banco existente. `BACKUP_ANTES_MIGRACAO=0` desativa
+o backup automático de migração em SQLite quando isso for desejado; o padrão é 1.
+Configurações e bases com dados de usuários continuam fora do Git. A chave ORS antiga
+não é usada nesta funcionalidade.
+
+Execute os testes com `.\.venv\Scripts\python.exe -m unittest discover -s tests -q`.
+Os testes usam banco em memória e não fazem chamadas de API. A implantação em MySQL
+requer validação da migração em seu ambiente específico.

@@ -1,5 +1,17 @@
 # Histórico de versões
 
+## 2.2.0 — em teste na branch feature/integracao-api
+
+- Sugestões de revisão por mesmo município ou divisa municipal, integradas às pendências.
+- Base local padronizada por código IBGE, obtida das APIs públicas de Localidades e Malhas.
+- Atualização da base por comando/BAT, preservando a base anterior em falhas.
+- Confirmação manual de vínculo ou dispensa, com responsável informado, justificativa e histórico.
+- Deduplicação, revalidação de referências, controle de concorrência e CSRF nas decisões novas.
+- Cobertura municipal incompleta e grafia não encontrada sinalizadas sem bloquear cadastro.
+- Migração aditiva; sem importação de GeoJSON ou sugestões retroativas em massa.
+- Botão de tema apenas no Dashboard; preferência mantida nas demais telas.
+
+
 ## 2.0.0 — 28/10/2026
 
 ### Validade e regularização

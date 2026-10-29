@@ -49,3 +49,5 @@
 @media(max-width:720px){.topbar{flex-wrap:wrap;gap:14px}.topbar-actions{margin-left:auto}}
 
 .form-grid small{font-weight:400;line-height:1.5;color:var(--muted)}td .btn{margin:3px}td{vertical-align:top}.filter-panel{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}.filter-search{grid-column:span 1}
+
+.municipal-row{align-items:flex-start;gap:24px}.municipal-row .pending-main{flex:1;min-width:0}.municipal-form{display:grid;gap:12px;flex:0 0 340px;max-width:100%}.municipal-form label{display:grid;gap:6px}.municipal-form .check-label{display:flex;align-items:flex-start}.municipal-form .form-actions{flex-wrap:wrap}.municipal-row .change-box{overflow-wrap:anywhere}@media(max-width:900px){.municipal-row{flex-direction:column}.municipal-form{flex:auto;width:100%}}

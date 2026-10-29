@@ -5,6 +5,7 @@ from pathlib import Path
 import secrets
 import threading
 import atexit
+import sys
 from decimal import Decimal, InvalidOperation
 
 from dotenv import load_dotenv
@@ -293,7 +294,7 @@ def atualizar_estrutura():
     with db.engine.connect() as connection:
         revisao = MigrationContext.configure(connection).get_current_revision()
         tem_tabelas = bool(inspect(connection).get_table_names())
-    if revisao != ScriptDirectory.from_config(configuracao).get_current_head() and tem_tabelas and db.engine.dialect.name == "sqlite":
+    if revisao != ScriptDirectory.from_config(configuracao).get_current_head() and tem_tabelas and db.engine.dialect.name == "sqlite" and os.getenv('BACKUP_ANTES_MIGRACAO', '1') != '0':
         import sqlite3
         origem = Path(db.engine.url.database)
         if origem.is_file():
@@ -753,6 +754,8 @@ def listar_pendencias():
 @app.route("/pendencias/<int:item_id>/concluir", methods=["POST"])
 def concluir_pendencia(item_id):
     pendencia = db.get_or_404(Pendencia, item_id)
+    if pendencia.tipo == 'sugestao_municipal':
+        abort(400, description='Use Vincular ou Dispensar na sugestão municipal, informando o responsável.')
     if pendencia.status == "aberta":
         pendencia.status = "concluida"
         pendencia.concluida_em = agora_utc()
@@ -1040,6 +1043,9 @@ def criar_aplicacao():
     iniciar_verificador()
     return app
 
+
+import sugestoes_municipais
+sugestoes_municipais.instalar(sys.modules[__name__])
 
 if __name__ == "__main__":
     criar_aplicacao()
