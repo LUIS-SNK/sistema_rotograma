@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+{% block title %}Notificações{% endblock %}
+{% block heading %}Notificações de novas cercas{% endblock %}
+{% block content %}
+<section class="welcome compact"><div><h2>Uma nova cerca, todos os rotogramas para analisar</h2><p>Cada alerta reúne rotogramas que possuem cercas no mesmo município ou em municípios que fazem divisa com o da nova cerca. Confira a relação em cada sugestão e decida se o rotograma precisa ser atualizado.</p><p class="muted">A relação municipal não comprova passagem pelo local. Nenhum vínculo é criado automaticamente.</p></div></section>
+<div class="page-actions"><form class="search" method="get"><input name="q" aria-label="Pesquisar notificações" placeholder="Cerca, cidade ou rotograma..." value="{{ busca }}"><select name="status" aria-label="Situação das notificações"><option value="aberta" {% if status == 'aberta' %}selected{% endif %}>Com análises abertas</option><option value="concluida" {% if status == 'concluida' %}selected{% endif %}>Concluídas</option><option value="todas" {% if status == 'todas' %}selected{% endif %}>Todas</option></select><button class="btn">Filtrar</button></form><p class="muted">{{ notificacoes_abertas }} notificação(ões) com análise aberta</p></div>
+{% for grupo in grupos %}
+<section class="panel notification-card" id="cerca-{{ grupo.cerca.id }}">
+<div class="panel-head"><div><span class="eyebrow">NOVA CERCA · #{{ grupo.cerca.id }}</span><h2>{{ grupo.cerca.nome }}</h2><p>{{ grupo.cerca.cidade or 'Cidade não informada' }}/{{ grupo.cerca.estado or 'UF não informada' }} · <a href="{{ url_for('detalhe_cadastro',tipo='cerca',item_id=grupo.cerca.id) }}">Consultar cerca</a></p></div><span class="status {{ 'pending' if grupo.abertas else 'active' }}">{{ grupo.abertas }} análise(s) aberta(s)</span></div>
+<div class="notification-summary"><strong>{{ grupo.sugestoes|length }} rotograma(s) sugerido(s)</strong><span>{{ grupo.concluidas }} análise(s) concluída(s)</span></div>
+{% for a in grupo.sugestoes %}
+<article class="notification-route">
+<div class="pending-title"><h3><a href="{{ url_for('detalhe_rotograma',item_id=a.rotograma_id) }}">{{ a.rotograma.nome }}</a></h3><span class="status {{ 'pending' if a.pendencia.status == 'aberta' else 'active' }}">{{ a.decisao|replace('_',' ')|title if a.decisao else 'Análise aberta' }}</span></div>
+<p><strong>{{ 'Mesma cidade' if a.motivo.tipo == 'mesmo' else 'Município vizinho (divisa)' }}: {{ a.motivo.cidade }}/{{ a.motivo.uf }}.</strong></p>
+<p>O rotograma já possui vínculo com a cerca <a href="{{ url_for('detalhe_cadastro',tipo='cerca',item_id=a.motivo.referencia_id) }}">{{ a.motivo.referencia_nome }}</a>, localizada nesse município.</p>
+{% if a.pendencia.status == 'aberta' %}
+<details class="notification-decision"><summary class="btn">Analisar este rotograma</summary><form method="post" action="{{ url_for('decidir_notificacao',item_id=a.pendencia_id) }}" class="notification-form">
+<input type="hidden" name="token_municipal" value="{{ token_municipal() }}"><input type="hidden" name="versao" value="{{ a.versao }}"><input type="hidden" name="cerca_versao" value="{{ a.cerca.versao }}"><input type="hidden" name="rotograma_versao" value="{{ a.rotograma.versao }}">
+<label>Responsável pela análise<input name="responsavel" minlength="2" maxlength="120" required autocomplete="name"></label><small class="muted">Responsável informado pelo operador; não há autenticação de identidade.</small>
+<label>Justificativa opcional<textarea name="justificativa" maxlength="500" rows="2"></textarea></label><label class="check-label"><input type="checkbox" name="confirmar" value="sim" required> Revisei este rotograma e estou ciente de que a relação municipal não confirma o trajeto real.</label>
+<div class="form-actions"><button class="btn" name="decisao" value="dispensar">Dispensar sugestão</button><button class="btn primary" name="decisao" value="vincular">Confirmar vínculo da cerca</button></div></form></details>
+{% else %}<p class="muted">Encerrada em {{ a.decidida_em.strftime('%d/%m/%Y %H:%M') if a.decidida_em else 'data não disponível' }} UTC{% if a.responsavel %} · Responsável: {{ a.responsavel }}{% endif %}</p>{% if a.justificativa %}<p>{{ a.justificativa }}</p>{% endif %}{% endif %}
+</article>
+{% endfor %}</section>
+{% else %}<section class="panel"><div class="empty"><strong>Nenhuma notificação nesta visualização</strong><p>Novas cercas com rotogramas relacionados por município aparecerão aqui, agrupadas com suas sugestões.</p></div></section>{% endfor %}
+{% if fila_municipal %}<section class="panel"><div class="panel-head"><div><h2>Comparações incompletas</h2><p>Revise a localização destas cercas. A ausência de sugestão não significa que a análise municipal foi completa.</p></div></div>{% for f in fila_municipal %}<div class="pending-row"><div><a href="{{ url_for('editar_cerca',item_id=f.cerca_id) }}">{{ f.cerca.nome }}</a><p>{{ f.mensagem }}</p></div></div>{% endfor %}<form method="post" action="{{ url_for('reprocessar_municipios') }}" class="form-actions"><input type="hidden" name="token_municipal" value="{{ token_municipal() }}"><button class="btn">Verificar novamente</button></form></section>{% endif %}
+<p class="muted">{% if base_municipal %}Base local: IBGE · obtida em {{ base_municipal.obtida_em[:10] }} · divisas da malha simplificada.{% else %}Base municipal indisponível; comparações com municípios vizinhos aguardam atualização.{% endif %}</p>
+{% endblock %}

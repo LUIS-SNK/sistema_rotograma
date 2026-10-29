@@ -1,4 +1,4 @@
-"""Sugestões cadastrais por município, integradas às pendências existentes."""
+"""Notificações por nova cerca, com sugestões municipais de rotogramas."""
 import hmac
 import json
 import os
@@ -57,6 +57,8 @@ def instalar(sistema):
             app.secret_key = p.read_text(encoding='ascii').strip()
     app.jinja_env.globals['token_municipal'] = token_csrf
     app.context_processor(contexto)
+    app.add_url_rule('/notificacoes', 'listar_notificacoes', listar)
+    app.add_url_rule('/notificacoes/<int:item_id>/decidir', 'decidir_notificacao', decidir, methods=['POST'])
     app.add_url_rule('/pendencias/<int:item_id>/decidir-sugestao', 'decidir_sugestao', decidir, methods=['POST'])
     app.add_url_rule('/pendencias/reprocessar-municipios', 'reprocessar_municipios', repetir, methods=['POST'])
     app.cli.command('atualizar-municipios')(comando_atualizar)
@@ -231,10 +233,46 @@ def validar_csrf():
 
 
 def contexto():
-    if request.endpoint != 'listar_pendencias':
+    if request.endpoint == 'static':
         return {}
-    base = obter_base()
-    return {'base_municipal': base, 'fila_municipal': Fila.query.filter(~Fila.status.in_(['concluida', 'cancelada'])).all()}
+    return {'notificacoes_abertas': len(alertas())}
+
+
+def alertas():
+    grupos = {}
+    for a in Sugestao.query.join(S.Pendencia).filter(S.Pendencia.status == 'aberta').all():
+        grupo = grupos.setdefault(a.cerca_id, {'cerca': a.cerca, 'quantidade': 0})
+        grupo['quantidade'] += 1
+    return list(grupos.values())
+
+
+def listar():
+    status = request.args.get('status', 'aberta')
+    if status not in ('aberta', 'concluida', 'todas'):
+        status = 'aberta'
+    busca = request.args.get('q', '').strip()
+    cerca_id = request.args.get('cerca_id', type=int)
+    query = Sugestao.query
+    if cerca_id:
+        query = query.filter_by(cerca_id=cerca_id)
+    grupos = {}
+    for a in query.order_by(Sugestao.cerca_id.desc(), Sugestao.rotograma_id).all():
+        grupo = grupos.setdefault(a.cerca_id, {'cerca': a.cerca, 'sugestoes': [], 'abertas': 0, 'concluidas': 0})
+        grupo['sugestoes'].append(a)
+        grupo['abertas' if a.pendencia.status == 'aberta' else 'concluidas'] += 1
+    resultado = []
+    for grupo in grupos.values():
+        if status == 'aberta' and not grupo['abertas']:
+            continue
+        if status == 'concluida' and grupo['abertas']:
+            continue
+        texto = ' '.join([grupo['cerca'].nome, grupo['cerca'].cidade or '', grupo['cerca'].estado or ''] +
+                         [a.rotograma.nome + ' ' + a.motivo['cidade'] for a in grupo['sugestoes']])
+        if busca and municipios.normalizar(busca) not in municipios.normalizar(texto):
+            continue
+        resultado.append(grupo)
+    return render_template('notificacoes.html', grupos=resultado, status=status, busca=busca,
+        base_municipal=obter_base(), fila_municipal=Fila.query.filter(~Fila.status.in_(['concluida', 'cancelada'])).all())
 
 
 def decidir(item_id):
@@ -274,7 +312,7 @@ def decidir(item_id):
         'justificativa': justificativa, 'evidencia_revalidada': referencia[1]}, ensure_ascii=False))
     db.session.commit()
     flash('Decisão registrada. ' + ('Cerca vinculada ao rotograma.' if decisao == 'vincular' else 'Sugestão dispensada.'), 'sucesso')
-    return redirect(url_for('listar_pendencias'))
+    return redirect(url_for('listar_notificacoes', cerca_id=a.cerca_id, status='todas', _anchor='cerca-' + str(a.cerca_id)))
 
 
 def repetir():
@@ -284,7 +322,7 @@ def repetir():
         gerar(fila.cerca, base)
     db.session.commit()
     flash('Pendências técnicas reavaliadas com a base local disponível.', 'info')
-    return redirect(url_for('listar_pendencias'))
+    return redirect(url_for('listar_notificacoes'))
 
 
 def comando_atualizar():

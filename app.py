@@ -411,7 +411,7 @@ def dashboard():
         cercas=Cerca.query.filter_by(excluido_em=None).count(),
         postos=Posto.query.filter_by(excluido_em=None).count(),
         rotogramas=Rotograma.query.filter_by(excluido_em=None).count(),
-        pendencias=Pendencia.query.filter_by(status="aberta").count(),
+        pendencias=Pendencia.query.filter(Pendencia.status == 'aberta', Pendencia.tipo != 'sugestao_municipal').count(),
         alertas=coletar_alertas(),
         rotina=db.session.get(ControleRotina, "vencimentos"),
         ultimas=HistoricoAlteracao.query.order_by(HistoricoAlteracao.data_alteracao.desc()).limit(8).all(),
@@ -744,7 +744,7 @@ def listar_pendencias():
     status = request.args.get("status", "aberta")
     if status not in ("aberta", "concluida", "todas"):
         status = "aberta"
-    query = Pendencia.query
+    query = Pendencia.query.filter(Pendencia.tipo != 'sugestao_municipal')
     if status != "todas":
         query = query.filter_by(status=status)
     pendencias = query.order_by(Pendencia.criada_em.desc()).all()
@@ -842,6 +842,11 @@ def coletar_alertas():
     for r in Rotograma.query.filter(Rotograma.excluido_em.is_(None)).all():
         for problema in problemas_rotograma(r):
             alertas.append(dict(problema, categoria="composicao", mensagem=problema["motivo"]))
+    for grupo in sugestoes_municipais.alertas():
+        cerca = grupo['cerca']
+        alertas.append({'chave': f'notificacao:cerca:{cerca.id}', 'categoria': 'nova_cerca', 'tipo': 'cerca',
+            'item': cerca, 'mensagem': f"Nova cerca: {grupo['quantidade']} rotograma(s) sugerido(s) para análise por relação municipal.",
+            'notificacao_cerca_id': cerca.id})
     return alertas
 
 

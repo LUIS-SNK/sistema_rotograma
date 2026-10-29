@@ -2,7 +2,10 @@
 
 ## 2.2.0 — em teste na branch feature/integracao-api
 
-- Sugestões de revisão por mesmo município ou divisa municipal, integradas às pendências.
+- Notificações agrupadas por nova cerca, com todos os rotogramas sugeridos por mesmo município ou divisa municipal.
+- Tela própria de Notificações, com alerta no Dashboard, contador por cerca, filtros e busca.
+- Decisões independentes por rotograma; alerta encerrado somente após concluir todas as sugestões.
+- Pendências cadastrais preservadas em sua lista original, sem sugestões municipais misturadas.
 - Base local padronizada por código IBGE, obtida das APIs públicas de Localidades e Malhas.
 - Atualização da base por comando/BAT, preservando a base anterior em falhas.
 - Confirmação manual de vínculo ou dispensa, com responsável informado, justificativa e histórico.

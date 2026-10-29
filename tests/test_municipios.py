@@ -33,7 +33,7 @@ class Sugestoes(unittest.TestCase):
  def sugestao(self,**kw):
   r,ref=self.referencia(**kw);c=self.nova();a=G.Sugestao.query.filter_by(cerca_id=c.id,rotograma_id=r.id).one();return r,ref,c,a
  def decidir(self,a,decisao='vincular',**extras):
-  pagina=self.c.get('/pendencias');self.assertEqual(pagina.status_code,200,pagina.text)
+  pagina=self.c.get('/notificacoes');self.assertEqual(pagina.status_code,200,pagina.text)
   with self.c.session_transaction() as sess:token=sess['_municipal_csrf']
   dados=dict(token_municipal=token,versao=a.versao,cerca_versao=a.cerca.versao,rotograma_versao=a.rotograma.versao,
     confirmar='sim',responsavel='Pessoa de teste',justificativa='Conferência de teste',decisao=decisao)
@@ -148,10 +148,50 @@ class Sugestoes(unittest.TestCase):
   S.db.session.delete(S.RotogramaCerca.query.filter_by(cerca_id=ref.id,rotograma_id=r.id).one());S.db.session.commit()
   self.assertEqual(a.motivo['referencia_id'],outra.id);self.assertGreater(a.versao,antiga)
   self.assertEqual(a.pendencia.status,'aberta')
- def test_telas_e_sem_tela_nova(self):
+ def duas_rotas(self):
+  r1,ref=self.referencia(cidade='Mogi Guaçu')
+  outra=self.cerca('Referência em município vizinho','Mogi Mirim')
+  r2=S.Rotograma(nome='Segundo rotograma sugerido',ativo=True)
+  S.db.session.add(r2);S.db.session.commit()
+  S.db.session.add(S.RotogramaCerca(rotograma_id=r2.id,cerca_id=outra.id));S.db.session.commit()
+  c=self.nova();return c,r1,r2
+ def test_notificacao_agrupa_rotogramas_por_cerca(self):
+  c,r1,r2=self.duas_rotas()
+  pagina=self.c.get(f'/notificacoes?cerca_id={c.id}')
+  self.assertEqual(pagina.status_code,200);self.assertEqual(pagina.text.count(f'id="cerca-{c.id}"'),1)
+  self.assertIn(r1.nome,pagina.text);self.assertIn(r2.nome,pagina.text)
+  self.assertIn('Mesma cidade',pagina.text);self.assertIn('Município vizinho (divisa)',pagina.text)
+  self.assertEqual(S.RotogramaCerca.query.filter_by(cerca_id=c.id).count(),0)
+ def test_alerta_unico_por_cerca_com_quantidade(self):
+  c,r1,r2=self.duas_rotas()
+  alertas=[a for a in S.coletar_alertas() if a.get('categoria')=='nova_cerca' and a['item'].id==c.id]
+  self.assertEqual(len(alertas),1);self.assertIn('2 rotograma(s)',alertas[0]['mensagem'])
+  self.assertIn('Ver notificações',self.c.get('/').text)
+ def test_sugestoes_fora_das_pendencias_cadastrais(self):
+  c,r1,r2=self.duas_rotas();pagina=self.c.get('/pendencias')
+  self.assertNotIn('analisar nova cerca',pagina.text)
+  self.assertNotIn('decidir-sugestao',pagina.text)
+  self.assertIn('Notificações',pagina.text)
+ def test_decisao_parcial_mantem_alerta_ate_todas_concluidas(self):
+  c,r1,r2=self.duas_rotas()
+  a1=G.Sugestao.query.filter_by(cerca_id=c.id,rotograma_id=r1.id).one()
+  a2=G.Sugestao.query.filter_by(cerca_id=c.id,rotograma_id=r2.id).one()
+  res=self.decidir(a1,'dispensar');self.assertEqual(res.status_code,302)
+  self.assertIn('/notificacoes',res.location)
+  grupo=next(x for x in G.alertas() if x['cerca'].id==c.id);self.assertEqual(grupo['quantidade'],1)
+  self.assertIn(f'id="cerca-{c.id}"',self.c.get(f'/notificacoes?cerca_id={c.id}').text)
+  self.assertEqual(self.decidir(a2,'dispensar').status_code,302)
+  self.assertFalse(any(x['cerca'].id==c.id for x in G.alertas()))
+  self.assertNotIn(f'id="cerca-{c.id}"',self.c.get(f'/notificacoes?cerca_id={c.id}').text)
+  self.assertIn(f'id="cerca-{c.id}"',self.c.get(f'/notificacoes?status=concluida&cerca_id={c.id}').text)
+ def test_busca_notificacao_por_rotograma(self):
+  c,r1,r2=self.duas_rotas()
+  self.assertIn(f'id="cerca-{c.id}"',self.c.get('/notificacoes?q=Segundo').text)
+  self.assertNotIn(f'id="cerca-{c.id}"',self.c.get('/notificacoes?q=inexistenteXYZ').text)
+ def test_telas_notificacoes(self):
   self.sugestao()
-  for url in ['/','/pendencias','/pendencias?status=concluida','/historico?tipo=sugestao_municipal','/cercas/nova']:
+  for url in ['/','/pendencias','/pendencias?status=concluida','/notificacoes','/notificacoes?status=concluida','/historico?tipo=sugestao_municipal','/cercas/nova']:
    r=self.c.get(url);self.assertEqual(r.status_code,200,r.text)
-  self.assertIn('município vizinho por divisa',self.c.get('/pendencias').text)
+  self.assertIn('Município vizinho (divisa)',self.c.get('/notificacoes').text)
 
 if __name__=='__main__':unittest.main()

@@ -158,8 +158,8 @@ não reinstala a integração ORS anterior e não importa o GeoJSON da empresa.
 
 Ao cadastrar uma nova cerca ativa, o sistema procura rotogramas ativos que já
 possuem cercas ativas e não excluídas no mesmo município/UF ou em municípios que
-compartilham um segmento de divisa. A relação geográfica gera uma **sugestão** em
-**Pendências**; nunca confirma a rota real nem cria vínculos automaticamente.
+compartilham um segmento de divisa. A relação geográfica gera uma **notificação por nova cerca**, reunindo os rotogramas sugeridos em
+**Notificações**; nunca confirma a rota real nem cria vínculos automaticamente.
 Rotogramas sem cercas vinculadas nesses municípios não são identificados.
 
 A nova cerca gera no máximo uma sugestão atual por rotograma. Várias cercas de
@@ -169,11 +169,11 @@ massa: a migração cria apenas as duas tabelas novas, sem gerar sugestões retr
 
 ### Conferir uma sugestão
 
-1. Abra **Pendências**, também acessível pelo contador do Dashboard.
-2. Veja a nova cerca, o rotograma e a cerca de referência que motivou a sugestão.
+1. Abra **Notificações**, pelo menu ou pelo aviso no Dashboard. Cada cerca possui um alerta com todos os rotogramas sugeridos.
+2. Na notificação da cerca, veja os rotogramas sugeridos, a relação de mesma cidade ou divisa e a cerca de referência de cada sugestão. Abra **Analisar este rotograma**.
 3. Informe o responsável e, opcionalmente, uma justificativa.
-4. Confirme a revisão e escolha **Confirmar vínculo** ou **Dispensar sugestão**.
-5. Consulte as decisões no filtro **Concluídas** e no histórico, tipo
+4. Confirme a revisão e escolha **Confirmar vínculo da cerca** ou **Dispensar sugestão**.
+5. Consulte as decisões no filtro **Concluídas** em Notificações e no histórico, tipo
    **Sugestao Municipal**. Decisão, nome informado, data UTC, justificativa e a
    evidência revalidada ficam registrados. Não existe autenticação de identidade
    nesta versão: o responsável é informado pelo próprio operador.
@@ -183,7 +183,12 @@ excluídos não podem confirmar sugestões; alterações de município e remoç�
 referência encerram sugestões que perderam a justificativa. Um vínculo feito pelo
 fluxo manual também encerra a sugestão como vínculo já existente. Decisões são
 atômicas com o vínculo e o histórico. Pendências cadastrais anteriores mantêm seu
-fluxo de verificação; a decisão municipal conclui a própria sugestão.
+fluxo de verificação em **Pendências**, sem sugestões municipais nessa lista.
+Cada decisão conclui somente o rotograma analisado; o alerta da cerca permanece
+aberto até todas as sugestões serem concluídas. O menu e o Dashboard contam
+notificações por cerca, enquanto cada alerta informa os rotogramas ainda abertos.
+As sugestões antigas já salvas são agrupadas automaticamente, sem apagar histórico
+ou recriar dados. Há filtros por situação e busca por cerca, município ou rotograma.
 
 ### API e base local
 
@@ -212,7 +217,7 @@ empresa. A substituição da base é atômica: falhas de rede/validação mantê
 anterior. Cercas novas usam o banco e a base local, sem chamadas de rede no cadastro.
 Se a base estiver ausente/inválida, a comparação textual normalizada de Cidade/UF
 continua e a vizinhança fica pendente. Grafias não encontradas e cobertura incompleta
-aparecem em **Pendências**, com atalho para corrigir o cadastro e reprocessar.
+aparecem em **Notificações**, com atalho para corrigir o cadastro e reprocessar.
 
 Use o nome oficial do município e a UF. A comparação ignora acentos, caixa e espaços
 repetidos, mas não adivinha abreviações, distritos ou erros de digitação. Município

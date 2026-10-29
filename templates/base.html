@@ -16,6 +16,7 @@
       <a href="{{ url_for('listar_cercas') }}">⌁ Cercas</a>
       <a href="{{ url_for('listar_postos') }}">⌖ Postos</a>
       <a href="{{ url_for('listar_alertas') }}">◉ Alertas atuais</a>
+      <a href="{{ url_for('listar_notificacoes') }}">◉ Notificações{% if notificacoes_abertas %} <span class="notification-count">{{ notificacoes_abertas }}</span>{% endif %}</a>
       <a href="{{ url_for('listar_pendencias') }}">♧ Pendências</a>
       <a href="{{ url_for('listar_historico') }}">◷ Histórico</a>
     </nav>
