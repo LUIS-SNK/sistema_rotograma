@@ -95,7 +95,7 @@ def evidencias(cerca, base):
     vinculados = {v.rotograma_id for v in S.RotogramaCerca.query.filter_by(cerca_id=cerca.id)}
     resultado = {}
     for rota, referencia in itens:
-        if rota.id in vinculados:
+        if rota.id in vinculados or rota.rota_por_estradas:
             continue
         codigo_ref, m_ref = identificacao(referencia, base)
         mesmo = bool(cidade and cerca.estado) and ((codigo_ref == chave) if municipio and m_ref else (
@@ -122,7 +122,7 @@ def evidencias(cerca, base):
         else:
             resultado[rota.id] = (rota, {'tipo': 'faixa', 'origem_cidade': cerca.cidade, 'origem_uf': cerca.estado,
                 'cidade': cerca.cidade or '', 'uf': cerca.estado or '', 'faixa': comparacao,
-                'fonte': 'Faixa direta em modelo esférico, sem consulta a estradas'})
+                'fonte': 'Percurso aprovado OpenRouteService / OpenStreetMap' if rota.rota_por_estradas else 'Faixa direta em modelo esférico, sem consulta a estradas'})
     for rota, motivo in resultado.values():
         motivo['origem_coordenadas'] = [cerca.longitude, cerca.latitude]
     return resultado
@@ -240,7 +240,7 @@ def capturar(sess, contexto):
                 sess.info.setdefault('municipios_alvos', set()).add((obj.id, obj in sess.new))
         elif isinstance(obj, S.Rotograma):
             campos = ('origem', 'destino', 'origem_uf', 'destino_uf', 'origem_latitude', 'origem_longitude',
-                      'destino_latitude', 'destino_longitude', 'faixa_ativa', 'faixa_raio_km', 'ativo', 'excluido_em')
+                      'destino_latitude', 'destino_longitude', 'faixa_ativa', 'faixa_raio_km', 'rota_por_estradas', 'rota_dados', 'ativo', 'excluido_em')
             if obj in sess.new or any(inspect(obj).attrs[c].history.has_changes() for c in campos):
                 sess.info['faixas_alteradas'] = True
 

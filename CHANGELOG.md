@@ -1,3 +1,14 @@
+## 05/11/2026 — Percurso ajustável e faixa acompanhando as estradas
+
+- Editor Leaflet no cadastro/edição, com pontos de passagem arrastáveis e remoção.
+- Integração ORS no servidor, localização de cidades, perfis caminhão/veículo leve,
+  cache persistente, controle de consultas e tratamento de indisponibilidade.
+- Percurso aprovado e pontos salvos com histórico e controle de versão.
+- Margem configurável acompanhando o percurso, com visualização sombreada no mapa.
+- Sugestões pelo percurso salvo, sem relações municipais fora da margem nesse modo.
+- Revalidação das sugestões ao mudar percurso/margem, mantendo decisão manual do vínculo.
+- Migração aditiva preservando cadastros, vínculos e histórico existentes.
+
 # Histórico de versões
 
 ## 2.2.0 — em teste na branch feature/integracao-api

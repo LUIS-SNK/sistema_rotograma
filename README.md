@@ -290,11 +290,71 @@ confirmação de passagem pela cidade ou pela cerca.
   com os motivos disponíveis. Inativações, vínculos manuais e decisões continuam
   protegidos por revalidação e controle de versão.
 
-Não é necessário cadastrar corredores ou fornecer chave ORS. Não são enviados
-cadastros da empresa a um provedor de rotas. A importação do GeoJSON continua sendo
+Na opção de faixa reta, não é necessário fornecer chave ORS. Na opção por estradas,
+a integração descrita abaixo envia as localizações necessárias ao OpenRouteService. A importação do GeoJSON continua sendo
 uma funcionalidade separada; este incremento não importa o arquivo da empresa.
 
 Feche o servidor, execute **atualizar.bat** e **iniciar.bat**. A migração aditiva
 `20261029_03` acrescenta os campos sem substituir o banco ou recriar dados. Colunas
 compatíveis que já existam de testes anteriores são reaproveitadas. MySQL deve ser
 validado no ambiente de implantação.
+
+
+## Percurso editável pelas estradas — atualização de 05/11/2026
+
+No cadastro/edição, selecione **Rota pelas estradas com ajustes no mapa**. Informe
+origem/destino e UF e clique em **Calcular rota**. Uma nova origem/destino também
+agenda o cálculo ao terminar de preencher o campo. Clique na linha para acrescentar
+um ponto de passagem e arraste o marcador. Soltar o marcador recalcula o percurso.
+Os marcadores O/D também podem ser arrastados, preenchendo as coordenadas dos extremos.
+Remova passagens pela lista abaixo do mapa. Até 48 passagens intermediárias.
+
+Escolha a margem em **Raio da faixa (km)**. Por exemplo, 0,5 significa 500 metros
+para cada lado do percurso e nas pontas. O padrão oferecido para novos cadastros
+é 2 km. A margem muda a área sombreada sem chamar a API. O contorno desenhado
+é uma aproximação visual. A análise calcula a menor distância geográfica aos
+segmentos do percurso completo, sem simplificá-lo.
+
+**Salvar rotograma** confirma o percurso e suas passagens. Alterar origem/destino
+exige novo cálculo antes de salvar no modo por estradas. O histórico registra a
+troca do percurso e da margem. As notificações em aberto são reavaliadas.
+Os vínculos continuam dependendo da confirmação do usuário.
+
+Para rotogramas em modo por estradas, a sugestão depende exclusivamente da faixa
+do percurso salvo. Relações de mesma cidade/vizinhança não contornam esse filtro.
+Rotogramas existentes continuam no modo anterior até a edição explícita.
+Não há conversão ou recálculo automático em massa dos percursos existentes.
+
+Configure `ORS_API_KEY` no `.env` local e mantenha `ROTAS_ENABLED=1`. A chave
+fica no servidor e não aparece no HTML nem é enviada ao navegador. São enviados
+ao OpenRouteService apenas os nomes municipais para localizar os extremos e as
+coordenadas dos extremos/passagens para calcular o percurso. As análises de novas
+cercas usam o banco local e não fazem chamadas à API.
+
+O cache de trajetos dura 7 dias para novos cálculos idênticos. A localização de
+cidades fica em cache por 180 dias. Percursos já aprovados permanecem salvos e
+não expiram nem são substituídos por atualização do cache. Os limites locais
+`ROTAS_LIMITE_DIA=500` e `ROTAS_LIMITE_MINUTO=10` contam consultas externas de
+localização e percurso. Ajuste-os conforme as cotas efetivas da sua conta ORS.
+Não há repetição automática de consultas que falharem.
+
+Sem conexão/cota/chave, o cálculo mostra um aviso e não salva um percurso incompleto.
+É possível manter um percurso previamente aprovado sem recalculá-lo ou escolher a
+faixa reta para concluir o cadastro. Os cadastros de cercas continuam funcionando.
+
+Coordenadas dos extremos têm prioridade. Sem elas, cidades reconhecidas na base
+IBGE são buscadas no geocodificador ORS com validação de nome, UF e país. Cidades
+ambíguas precisam de coordenadas. Essa posição é aproximada. Cercas e postos sem
+coordenadas continuam aparecendo pelo centro aproximado municipal, e podem estar
+longe do local efetivo. Use coordenadas de cercas para margens estreitas.
+
+O perfil Caminhão é uma estimativa, sem parâmetros particulares de peso, altura
+ou carga. Não use esta ferramenta como autorização de circulação ou navegação.
+
+Feche o servidor e execute `atualizar.bat` e `iniciar.bat`. A migração aditiva
+`20261105_04` acrescenta o percurso JSON, a seleção de modo e as tabelas técnicas
+de cache/limites. Não exclui cadastros, vínculos ou históricos. A interface usa
+Leaflet 1.9.4, Turf 7.2.0 e tiles OpenStreetMap. Internet é necessária para o
+mapa de fundo e novos cálculos. Nenhum pacote Python adicional é necessário.
+
+Testes em memória: `.venv\Scripts\python.exe -m unittest discover -s tests`.

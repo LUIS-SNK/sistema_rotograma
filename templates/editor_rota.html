@@ -1,0 +1,18 @@
+{% set editor = rota_editor(rotograma) %}
+{% set modo = request.form.get('rota_modo') if request.method == 'POST' else ('estradas' if (rotograma and rotograma.rota_por_estradas) or (not rotograma and editor.disponivel) else 'direta') %}
+<fieldset class="geo-fieldset"><legend>Percurso do rotograma</legend>
+<label>Forma de análise<select name="rota_modo" id="rota-modo"><option value="direta" {% if modo == 'direta' %}selected{% endif %}>Faixa reta entre origem e destino</option><option value="estradas" {% if modo == 'estradas' %}selected{% endif %}>Rota pelas estradas com ajustes no mapa</option></select></label>
+<div id="editor-rota" {% if modo != 'estradas' %}hidden{% endif %}>
+{% if not editor.disponivel %}<p class="alert info">O cálculo está indisponível. Configure a chave OpenRouteService no servidor. Percursos já salvos podem ser mantidos.</p>{% endif %}
+<p>Informe origem/destino e UF acima. Clique em Calcular rota. Para mudar o caminho, clique na linha para adicionar um ponto de passagem e arraste esse ponto até o local desejado. A rota é recalculada ao soltar. Os pontos são aproximados às vias disponíveis em até 3 km.</p>
+<p class="muted">A rota é uma estimativa. O perfil Caminhão não substitui a conferência de restrições de altura, peso e acesso. Coordenadas exatas melhoram a localização dos extremos e das cercas.</p>
+<label>Perfil de cálculo<select id="rota-perfil"><option value="driving-hgv">Caminhão</option><option value="driving-car">Veículo leve</option></select></label>
+<div class="form-actions"><button type="button" class="btn" id="calcular-rota">Calcular rota</button><button type="button" class="btn" id="limpar-passagens">Remover pontos intermediários</button></div>
+<div id="mapa-editor-rota" style="height:480px;border-radius:12px;isolation:isolate" aria-label="Editor de percurso"></div>
+<p id="rota-status" role="status" aria-live="polite"></p>
+<ol id="pontos-rota"></ol>
+<p class="muted">A área sombreada acompanha a rota e representa aproximadamente a margem escolhida acima. O percurso só é gravado ao salvar o rotograma. Cálculo e mapa de fundo precisam de internet.</p>
+</div>
+<input type="hidden" name="rota_token" id="rota-token" value="{{ request.form.get('rota_token','') if request.method == 'POST' else token_rota(editor.dados) }}">
+<script type="application/json" id="editor-rota-config">{{ {'rota':editor.dados,'token':token_municipal(),'url':url_for('calcular_rota')}|tojson }}</script>
+</fieldset>

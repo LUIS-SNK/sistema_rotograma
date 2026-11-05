@@ -101,6 +101,8 @@ class Rotograma(db.Model):
     destino_longitude = db.Column(db.Float, nullable=True)
     faixa_ativa = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
     faixa_raio_km = db.Column(db.Float, nullable=True)
+    rota_por_estradas = db.Column(db.Boolean, nullable=False, default=False, server_default="0")
+    rota_dados = db.Column(db.JSON, nullable=True)
     descricao = db.Column(db.Text, nullable=True)
     ativo = db.Column(db.Boolean, nullable=False, default=True)
     criado_em = db.Column(db.DateTime, nullable=False, default=agora_utc)
@@ -442,6 +444,9 @@ def dados_geograficos(tipo, dados):
             resultado['faixa_ativa'] = bool_form(dados.get('faixa_ativa'))
             valor = dados.get('faixa_raio_km', '').strip()
             resultado['faixa_raio_km'] = faixa.raio(valor) if valor else None
+    if tipo == 'rotograma':
+        import rotas
+        resultado.update(rotas.formulario(dados))
     return resultado
 
 
@@ -658,10 +663,13 @@ def detalhe_rotograma(item_id):
     cercas_disponiveis = ordenar_por_nome(cercas_disponiveis)
     postos_disponiveis = ordenar_por_nome(postos_disponiveis)
     pendencias = Pendencia.query.filter(Pendencia.rotograma_id == item_id, Pendencia.tipo != 'sugestao_municipal').order_by(Pendencia.criada_em.desc()).limit(10).all()
+    import mapa_rotograma
+    faixa_info = sugestoes_municipais.dados_faixa(rotograma)
+    mapa_info = mapa_rotograma.dados(rotograma, cercas_vinculadas, postos_vinculados, sugestoes_municipais.obter_base(), faixa_info)
     return render_template("detalhe_rotograma.html", rotograma=rotograma,
                            cercas_vinculadas=cercas_vinculadas, postos_vinculados=postos_vinculados,
                            cercas_disponiveis=cercas_disponiveis, postos_disponiveis=postos_disponiveis,
-                           pendencias=pendencias, faixa_info=sugestoes_municipais.dados_faixa(rotograma))
+                           pendencias=pendencias, faixa_info=faixa_info, mapa_info=mapa_info)
 
 
 @app.route("/rotogramas/<int:item_id>/editar", methods=["GET", "POST"])
@@ -1094,6 +1102,8 @@ def criar_aplicacao():
 
 import sugestoes_municipais
 sugestoes_municipais.instalar(sys.modules[__name__])
+import rotas
+rotas.instalar(sys.modules[__name__])
 
 if __name__ == "__main__":
     criar_aplicacao()

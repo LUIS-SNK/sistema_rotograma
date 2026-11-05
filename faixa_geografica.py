@@ -96,6 +96,13 @@ def localizar(texto, uf, lat, lon, base):
 def dados_rotograma(r, base, raio_padrao=30):
     if not r.faixa_ativa:
         return {'ativa': False, 'erro': None}
+    if getattr(r, 'rota_por_estradas', False):
+        import rotas
+        rota = rotas.rota_valida(r)
+        if not rota:
+            return {'ativa': True, 'erro': 'Percurso ausente ou origem/destino alterado. Edite e calcule novamente a rota.'}
+        return {'ativa': True, 'erro': None, 'origem': rota['origem'], 'destino': rota['destino'],
+                'raio_km': raio(r.faixa_raio_km if r.faixa_raio_km is not None else raio_padrao), 'rota': rota}
     a = localizar(r.origem, r.origem_uf, r.origem_latitude, r.origem_longitude, base)
     b = localizar(r.destino, r.destino_uf, r.destino_latitude, r.destino_longitude, base)
     try:
@@ -112,6 +119,9 @@ def comparar(c, r, base, raio_padrao=30):
     d = dados_rotograma(r, base, raio_padrao)
     if not d['ativa'] or d['erro']:
         return None
+    if getattr(r, 'rota_por_estradas', False):
+        import rotas
+        return rotas.comparacao(c, r, base, raio_padrao)
     local = localizar(c.cidade, c.estado, c.latitude, c.longitude, base)
     if not local:
         return None
